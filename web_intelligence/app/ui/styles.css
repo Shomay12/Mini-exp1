@@ -1,0 +1,4 @@
+/* Compatibility CSS entrypoint importing the layered design system stylesheets. */
+@import url("./styles/tokens.css");
+@import url("./styles/layout.css");
+@import url("./styles/components.css");

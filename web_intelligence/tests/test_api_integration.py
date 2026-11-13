@@ -38,6 +38,8 @@ async def test_full_api_and_stage4_research_workflow(tmp_path: Path) -> None:
             assert ui_resp.status_code == 200
             assert "WEB INTELLIGENCE ENGINE" in ui_resp.text
             for asset_path in (
+                "/static/styles.css",
+                "/static/app.js",
                 "/static/styles/tokens.css",
                 "/static/styles/layout.css",
                 "/static/styles/components.css",
@@ -45,6 +47,7 @@ async def test_full_api_and_stage4_research_workflow(tmp_path: Path) -> None:
                 "/static/js/api.js",
                 "/static/js/components/workspace.js",
                 "/static/js/components/inspector.js",
+                "/static/js/components/settings_sheet.js",
             ):
                 assert (await client.get(asset_path)).status_code == 200
 

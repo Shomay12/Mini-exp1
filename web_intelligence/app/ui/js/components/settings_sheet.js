@@ -189,7 +189,9 @@ export function createSettingsSheet({ store }) {
               <strong>Outbound Telemetry & Cloud LLM Dependency</strong>
               <div class="settings-row__desc">Phase 1 intelligence executes locally without external LLM APIs or telemetry.</div>
             </div>
-            <span class="status-pill status-pill--verified">${ICONS.shield}<span>Disabled</span></span>
+            <span class="status-pill status-pill--verified">${ICONS.shield}<span>${
+              privacy.enable_telemetry ? "Telemetry On" : state.health?.cloud_llm_required ? "Cloud Required" : "Disabled"
+            }</span></span>
           </div>
           <div class="settings-row">
             <div>
@@ -206,7 +208,9 @@ export function createSettingsSheet({ store }) {
   function renderBudgetPane(state) {
     const limits = state.config?.config?.retrieval_limits || {};
     const p = state.prefs;
-    const effective = Math.max(256, p.contextBudgetTokens - p.reservedOutputTokens);
+    const totalBudget = Math.max(512, Number(p.contextBudgetTokens) || 8192);
+    const reserved = Math.min(totalBudget - 256, Math.max(0, Number(p.reservedOutputTokens) || 1024));
+    const effective = Math.max(256, totalBudget - reserved);
 
     return `
       <section class="settings-group">
@@ -282,7 +286,9 @@ export function createSettingsSheet({ store }) {
   }
 
   function renderModelPane(state) {
-    const effective = Math.max(256, state.prefs.contextBudgetTokens - state.prefs.reservedOutputTokens);
+    const totalBudget = Math.max(512, Number(state.prefs.contextBudgetTokens) || 8192);
+    const reserved = Math.min(totalBudget - 256, Math.max(0, Number(state.prefs.reservedOutputTokens) || 1024));
+    const effective = Math.max(256, totalBudget - reserved);
     return `
       <section class="settings-group">
         <h3 class="settings-group__title">Local Small Language Model Integration</h3>
