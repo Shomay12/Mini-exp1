@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 
@@ -358,6 +358,8 @@ class ModelDiscoveryResponse(BaseModel):
 class TestPromptRequest(BaseModel):
     """Request body for running a verification prompt against a connection."""
 
+    __test__: ClassVar[bool] = False
+
     prompt: str = Field(..., min_length=1, max_length=8000)
     system_prompt: str | None = Field(default=None, max_length=2000)
     stream: bool = False
@@ -367,6 +369,8 @@ class TestPromptRequest(BaseModel):
 
 class TestPromptResponse(BaseModel):
     """Result returned for non-streaming prompt verification."""
+
+    __test__: ClassVar[bool] = False
 
     connection_id: str
     model: str
