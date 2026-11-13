@@ -29,12 +29,13 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["web_intelligence"]
+where = ["."]
+include = ["web_intelligence*"]
 
 [tool.pytest.ini_options]
 testpaths = ["web_intelligence/tests"]
 asyncio_mode = "auto"
-pythonpath = ["web_intelligence"]
+pythonpath = ["."]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
