@@ -54,18 +54,18 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onSelectAgent
     const agentList = state.agentSessions || [];
     const filteredAgents = term
       ? agentList.filter(
-          (ag) =>
-            String(ag.original_query || "").toLowerCase().includes(term) ||
-            String(ag.research_id || "").toLowerCase().includes(term)
-        )
+        (ag) =>
+          String(ag.original_query || "").toLowerCase().includes(term) ||
+          String(ag.research_id || "").toLowerCase().includes(term)
+      )
       : agentList;
 
     const filtered = term
       ? state.runs.filter(
-          (run) =>
-            String(run.original_query || "").toLowerCase().includes(term) ||
-            String(run.research_id || "").toLowerCase().includes(term)
-        )
+        (run) =>
+          String(run.original_query || "").toLowerCase().includes(term) ||
+          String(run.research_id || "").toLowerCase().includes(term)
+      )
       : state.runs;
 
     if (state.runs.length === 0 && agentList.length === 0) {
