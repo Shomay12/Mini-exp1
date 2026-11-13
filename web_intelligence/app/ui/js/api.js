@@ -96,6 +96,147 @@ export const api = {
       signal,
     });
   },
+
+  listLlmPresets(signal) {
+    return requestJson("/llm/presets", { method: "GET", signal });
+  },
+
+  listLlmConnections(signal) {
+    return requestJson("/llm/connections", { method: "GET", signal });
+  },
+
+  createLlmConnection(payload, signal) {
+    return requestJson("/llm/connections", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  updateLlmConnection(connectionId, payload, signal) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  deleteLlmConnection(connectionId) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  activateLlmConnection(connectionId) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}/activate`, {
+      method: "POST",
+    });
+  },
+
+  disconnectLlm() {
+    return requestJson("/llm/disconnect", { method: "POST" });
+  },
+
+  testLlmConnection(connectionId, signal) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}/test`, {
+      method: "POST",
+      signal,
+    });
+  },
+
+  discoverLlmModels(connectionId, signal) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}/models`, {
+      method: "GET",
+      signal,
+    });
+  },
+
+  selectLlmModel(connectionId, model, signal) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}/model`, {
+      method: "POST",
+      body: JSON.stringify({ model }),
+      signal,
+    });
+  },
+
+  runLlmTestPrompt(connectionId, payload, signal) {
+    return requestJson(`/llm/connections/${encodeURIComponent(connectionId)}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({ ...payload, stream: false }),
+      signal,
+    });
+  },
+
+  async streamLlmTestPrompt(connectionId, payload, { signal, onChunk } = {}) {
+    const resp = await fetch(`${API_BASE}/llm/connections/${encodeURIComponent(connectionId)}/prompt`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ ...payload, stream: true }),
+      signal,
+    });
+
+    if (!resp.ok) {
+      let detail = `${resp.status} ${resp.statusText}`;
+      try {
+        const errBody = await resp.json();
+        if (errBody?.detail) detail = String(errBody.detail);
+      } catch {
+        // ignore parse failure
+      }
+      throw new ApiError(detail, resp.status);
+    }
+
+    if (!resp.body) {
+      throw new ApiError("Streaming response body unavailable.", 502);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) {
+          currentEvent = "message";
+          continue;
+        }
+        if (line.startsWith("event:")) {
+          currentEvent = line.slice(6).trim();
+          continue;
+        }
+        if (!line.startsWith("data:")) continue;
+        const dataStr = line.slice(5).trim();
+        if (dataStr === "[DONE]") {
+          if (onChunk) onChunk({ delta: "", done: true });
+          return;
+        }
+        let parsed = null;
+        try {
+          parsed = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
+        if (currentEvent === "error") {
+          throw new ApiError(parsed?.detail || "LLM streaming failed.", 502);
+        }
+        if (onChunk && parsed) {
+          onChunk(parsed);
+        }
+      }
+    }
+  },
 };
 
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);

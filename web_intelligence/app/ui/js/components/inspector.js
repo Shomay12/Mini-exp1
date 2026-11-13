@@ -1,6 +1,6 @@
 /**
- * Trailing Evidence & Provenance Inspector — Sources (with live GET /api/v1/sources/{id}),
- * Passages (corroboration filter), Conflicts (neutral comparison), and Research Audit.
+ * Trailing Inspector — Sources (with live GET /api/v1/sources/{id}),
+ * Passages (corroboration filter), Conflicts, and Audit.
  */
 
 import {
@@ -107,50 +107,49 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
     const redirects = meta.redirect_chain || [];
     const warnings = meta.warnings || [];
     const headings = meta.headings || [];
-    const publisher = prov.publisher || meta.publisher || "Not declared";
-    const author = detail.author || prov.author || "Not declared";
+    const publisher = prov.publisher || meta.publisher || "—";
+    const author = detail.author || prov.author || "—";
 
     return `
-      <section class="source-detail" aria-label="Selected source provenance and content">
+      <section class="source-detail" aria-label="Source provenance and content">
         <div class="inspector-head__top">
           <div>
             <div class="doc-section__sub">
-              ${citeNum ? `[${citeNum}] · ` : ""}Source Provenance
-              ${state.sourceDetailLoading ? " · Refreshing…" : ""}
+              ${citeNum ? `[${citeNum}] ` : ""}Source Detail${state.sourceDetailLoading ? " · Loading…" : ""}
             </div>
             <h3 style="margin: 2px 0 0; font-size: var(--text-title-3); font-weight: 600; line-height: 1.3;">
-              ${escapeHtml(detail.title || detail.domain || "Untitled Document")}
+              ${escapeHtml(detail.title || detail.domain || "Untitled")}
             </h3>
           </div>
-          <button id="btn-close-source-detail" class="btn btn--quiet" type="button" title="Collapse source detail">Hide</button>
+          <button id="btn-close-source-detail" class="btn btn--quiet" type="button">Close</button>
         </div>
 
         ${
           state.sourceDetailError
-            ? `<div class="banner banner--error" role="alert" style="padding: 8px 10px; font-size: var(--text-caption);">
-                <span>Could not refresh live source record: ${escapeHtml(state.sourceDetailError)}. Showing cached package record.</span>
+            ? `<div class="banner--error" role="alert" style="padding: 8px 10px; font-size: var(--text-caption);">
+                ${escapeHtml(state.sourceDetailError)}
               </div>`
             : ""
         }
 
-        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
           ${renderStatusPill(detail.extraction_status)}
           ${
             prov.source_classification
-              ? `<span class="status-pill">${escapeHtml(prov.source_classification.replaceAll("_", " "))}</span>`
+              ? `<span class="doc-section__sub">${escapeHtml(prov.source_classification.replaceAll("_", " "))}</span>`
               : ""
           }
           ${
             openUrl !== "#"
-              ? `<a class="inline-link" style="font-size: var(--text-caption);" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener noreferrer">Open Original URL ↗</a>`
+              ? `<a class="inline-link" style="font-size: var(--text-caption);" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener noreferrer">Open URL ↗</a>`
               : ""
           }
         </div>
 
         ${
           detail.extraction_error
-            ? `<div class="banner banner--error" style="padding: 8px 10px; font-size: var(--text-caption);">
-                Extraction note: ${escapeHtml(detail.extraction_error)}
+            ? `<div class="banner--error" style="padding: 8px 10px; font-size: var(--text-caption);">
+                ${escapeHtml(detail.extraction_error)}
               </div>`
             : ""
         }
@@ -159,7 +158,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
           <dt class="kv-table__key">Domain</dt>
           <dd class="kv-table__val" style="margin:0;">${escapeHtml(detail.domain || "—")}</dd>
 
-          <dt class="kv-table__key">Classification</dt>
+          <dt class="kv-table__key">Source Type</dt>
           <dd class="kv-table__val" style="margin:0;">${escapeHtml(prov.classification_reason || "—")}</dd>
 
           <dt class="kv-table__key">Publisher</dt>
@@ -174,38 +173,26 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
           <dt class="kv-table__key">Retrieved</dt>
           <dd class="kv-table__val" style="margin:0;">${escapeHtml(formatDateTime(detail.retrieved_at))}</dd>
 
-          <dt class="kv-table__key">HTTP / Type</dt>
+          <dt class="kv-table__key">HTTP</dt>
           <dd class="kv-table__val mono" style="margin:0;">
             ${meta.http_status ?? "—"} · ${escapeHtml(meta.content_type || "unknown")} · ${formatBytes(meta.byte_length)}
           </dd>
 
           <dt class="kv-table__key">Extractor</dt>
           <dd class="kv-table__val mono" style="margin:0;">
-            ${escapeHtml(meta.extractor_used || "none")} · relevance ${formatScore(detail.document_relevance_score)}
+            ${escapeHtml(meta.extractor_used || "none")} · score ${formatScore(detail.document_relevance_score)}
           </dd>
 
-          <dt class="kv-table__key">Provider</dt>
-          <dd class="kv-table__val mono" style="margin:0;">${escapeHtml(detail.search_provider || "—")}</dd>
-
-          <dt class="kv-table__key">Canonical URL</dt>
+          <dt class="kv-table__key">URL</dt>
           <dd class="kv-table__val mono" style="margin:0;">${escapeHtml(detail.canonical_url || detail.original_url || "—")}</dd>
 
           ${
-            detail.content_hash
-              ? `
-            <dt class="kv-table__key">SHA-256</dt>
-            <dd class="kv-table__val mono" style="margin:0;">${escapeHtml(truncateText(detail.content_hash, 28))}</dd>
-          `
-              : ""
-          }
-          ${
             detail.is_duplicate
               ? `
-            <dt class="kv-table__key">Deduplicated</dt>
+            <dt class="kv-table__key">Duplicate</dt>
             <dd class="kv-table__val" style="margin:0;">
               ${escapeHtml(detail.duplicate_reason || "duplicate")}
-              ${detail.duplicate_similarity != null ? ` (sim ${formatScore(detail.duplicate_similarity)})` : ""}
-              ${detail.duplicate_of_source_id ? ` · of <span class="mono">${escapeHtml(truncateText(detail.duplicate_of_source_id, 16))}</span>` : ""}
+              ${detail.duplicate_similarity != null ? ` (${formatScore(detail.duplicate_similarity)})` : ""}
             </dd>
           `
               : ""
@@ -213,8 +200,8 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
           ${
             detail.alias_urls?.length
               ? `
-            <dt class="kv-table__key">Alias URLs</dt>
-            <dd class="kv-table__val" style="margin:0;">${detail.alias_urls.length} merged alias URL${detail.alias_urls.length === 1 ? "" : "s"}</dd>
+            <dt class="kv-table__key">Aliases</dt>
+            <dd class="kv-table__val" style="margin:0;">${detail.alias_urls.length}</dd>
           `
               : ""
           }
@@ -232,21 +219,21 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
               aria-controls="inspector-redirects-body"
             >
               ${ICONS.triangle}
-              <span>Redirects &amp; Diagnostics (${redirects.length} hops, ${warnings.length} notes)</span>
+              <span>Redirects &amp; notes (${redirects.length} hops, ${warnings.length})</span>
             </button>
             <div id="inspector-redirects-body" class="disclosure-body" ${redirectsExpanded ? "" : "hidden"}>
               ${
                 redirects.length
-                  ? `<div><strong>Redirect Chain:</strong><ol style="margin:4px 0 0; padding-left:18px;">${redirects
+                  ? `<ol style="margin:0; padding-left:18px;">${redirects
                       .map((u) => `<li class="mono" style="word-break:break-all;">${escapeHtml(u)}</li>`)
-                      .join("")}</ol></div>`
+                      .join("")}</ol>`
                   : ""
               }
               ${
                 warnings.length
-                  ? `<div><strong>Warnings:</strong><ul style="margin:4px 0 0; padding-left:18px;">${warnings
+                  ? `<ul style="margin:0; padding-left:18px;">${warnings
                       .map((w) => `<li>${escapeHtml(w)}</li>`)
-                      .join("")}</ul></div>`
+                      .join("")}</ul>`
                   : ""
               }
             </div>
@@ -267,10 +254,10 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
               aria-controls="inspector-headings-body"
             >
               ${ICONS.triangle}
-              <span>Document Outline (${headings.length} headings)</span>
+              <span>Headings (${headings.length})</span>
             </button>
             <div id="inspector-headings-body" class="disclosure-body" ${headingsExpanded ? "" : "hidden"}>
-              <ul style="margin:0; padding-left:16px; display:flex; flex-direction:column; gap:4px;">
+              <ul style="margin:0; padding-left:14px; display:flex; flex-direction:column; gap:3px;">
                 ${headings
                   .slice(0, 30)
                   .map(
@@ -288,11 +275,11 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
         }
 
         <div>
-          <div class="doc-section__sub" style="margin-bottom: 6px;">Extracted Clean Content</div>
-          <div class="source-reader" aria-label="Extracted cleaned webpage content">${
+          <div class="doc-section__sub" style="margin-bottom: 6px;">Extracted Text</div>
+          <div class="source-reader" aria-label="Extracted source text">${
             detail.main_content
               ? escapeHtml(detail.main_content)
-              : escapeHtml(detail.search_snippet || "No cleaned body text available for this source.")
+              : escapeHtml(detail.search_snippet || "No extracted text available.")
           }</div>
         </div>
       </section>
@@ -303,10 +290,10 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
     if (state.mode === "search" && state.searchResponse) {
       const results = state.searchResponse.results || [];
       if (!results.length) {
-        return `<p class="empty-state__desc">No search candidates returned for inspection.</p>`;
+        return `<p class="coverage-summary-text">No search results.</p>`;
       }
       return `
-        <div class="doc-section__sub">Quick Search returns ranked snippets without fetching page bodies. Switch to Full Research for provenance and text extraction.</div>
+        <div class="doc-section__sub">Switch to Research mode to fetch pages and inspect full text.</div>
         <div class="inspector-list">
           ${results
             .map(
@@ -328,7 +315,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
 
     const sources = pkg?.sources || [];
     if (!sources.length) {
-      return `<p class="empty-state__desc">Run or select a research task to inspect retrieved webpages, provenance metadata, and cleaned text.</p>`;
+      return `<p class="coverage-summary-text">Select a run or citation to inspect sources.</p>`;
     }
 
     const selectedSummary = sources.find((s) => s.source_id === state.selectedSourceId) || null;
@@ -339,9 +326,6 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
         ${sources
           .map((src, idx) => {
             const selected = src.source_id === state.selectedSourceId;
-            const clsLabel = src.provenance?.source_classification
-              ? src.provenance.source_classification.replaceAll("_", " ")
-              : "";
             return `
               <button
                 class="inspector-row ${selected ? "is-selected" : ""}"
@@ -353,11 +337,10 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
                 <div class="inspector-row__title">[${idx + 1}] ${escapeHtml(src.title || src.domain || src.original_url)}</div>
                 <div class="inspector-row__meta">
                   <span>${escapeHtml(src.domain)}</span>
-                  ${clsLabel ? `<span>· ${escapeHtml(clsLabel)}</span>` : ""}
-                  <span>· rel ${formatScore(src.document_relevance_score)}</span>
+                  <span>· ${formatScore(src.document_relevance_score)}</span>
                   ${src.is_duplicate ? `<span>· duplicate</span>` : ""}
+                  <span>· ${renderStatusPill(src.extraction_status)}</span>
                 </div>
-                <div style="margin-top:2px;">${renderStatusPill(src.extraction_status)}</div>
               </button>
             `;
           })
@@ -370,7 +353,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
   function renderPassagesTab(state, pkg, sourceIndexMap) {
     const allPassages = pkg?.evidence || [];
     if (!allPassages.length) {
-      return `<p class="empty-state__desc">No extracted evidence passages available for the current view.</p>`;
+      return `<p class="coverage-summary-text">No passages available.</p>`;
     }
 
     const filter = state.passageFilter || "all";
@@ -380,7 +363,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
         : allPassages.filter((item) => (item.corroboration?.corroboration_status || "unverified") === filter);
 
     return `
-      <div class="segmented segmented--full" role="group" aria-label="Filter passages by corroboration status">
+      <div class="segmented segmented--full" role="group" aria-label="Filter passages">
         ${PASSAGE_FILTERS.map(
           (f) => `
           <button
@@ -395,7 +378,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
         ).join("")}
       </div>
 
-      <div class="doc-section__sub">${filtered.length} of ${allPassages.length} extracted passages shown</div>
+      <div class="doc-section__sub">${filtered.length} of ${allPassages.length} passages</div>
 
       <div class="inspector-list">
         ${
@@ -417,21 +400,21 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
                         ${escapeHtml(truncateText(ev.passage_text, 220))}
                       </p>
                       <div class="inspector-row__meta" style="justify-content:space-between; width:100%;">
-                        <span class="mono">rel ${formatScore(rel.combined_score)} · bm25 ${formatScore(rel.bm25_score)} · ${formatNumber(ev.token_estimate)} tok</span>
+                        <span class="mono">score ${formatScore(rel.combined_score)} · ${formatNumber(ev.token_estimate)} tok</span>
                         <button
-                          class="citation-pill"
+                          class="citation-link"
                           type="button"
                           data-inspect-source="${escapeHtml(ev.source_id)}"
                           data-jump-source="true"
                         >
-                          Source
+                          Open Source
                         </button>
                       </div>
                     </div>
                   `;
                 })
                 .join("")
-            : `<p class="empty-state__desc">No passages match the “${escapeHtml(filter.replaceAll("_", " "))}” filter.</p>`
+            : `<p class="coverage-summary-text">No passages match this filter.</p>`
         }
       </div>
     `;
@@ -441,46 +424,45 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
     const conflicts = pkg?.conflicts || [];
     const claims = pkg?.claims || [];
     if (!conflicts.length && !claims.length) {
-      return `<p class="empty-state__desc">No claim conflicts or structured assertions detected in the active run.</p>`;
+      return `<p class="coverage-summary-text">No conflicting claims detected.</p>`;
+    }
+
+    if (!conflicts.length) {
+      return `<p class="coverage-summary-text">No contradictions detected across ${claims.length} claims.</p>`;
     }
 
     return `
-      ${
-        conflicts.length
-          ? `<div class="inspector-list">
-              ${conflicts
-                .map(
-                  (c) => `
-                <div class="conflict-card" style="padding: var(--space-3);">
-                  <div class="conflict-card__head">
-                    <strong>${escapeHtml(c.entity)} · ${escapeHtml(c.attribute)}</strong>
-                    ${renderStatusPill("contested", c.conflict_type.replaceAll("_", " "))}
-                  </div>
-                  <div class="doc-section__sub">${escapeHtml(c.summary)}</div>
-                  <div class="conflict-claim">
-                    <div class="conflict-claim__label">A · ${escapeHtml(c.claim_a.source_domain)}</div>
-                    <div class="conflict-claim__text" style="font-size: var(--text-callout);">${escapeHtml(c.claim_a.statement_text)}</div>
-                    <div class="doc-section__sub">
-                      <span class="mono">${escapeHtml(c.claim_a.normalized_value)}${c.claim_a.unit ? ` ${escapeHtml(c.claim_a.unit)}` : ""}</span>
-                      · <button class="citation-pill" type="button" data-inspect-source="${escapeHtml(c.claim_a.source_id)}" data-jump-source="true">Inspect A</button>
-                    </div>
-                  </div>
-                  <div class="conflict-claim">
-                    <div class="conflict-claim__label">B · ${escapeHtml(c.claim_b.source_domain)}</div>
-                    <div class="conflict-claim__text" style="font-size: var(--text-callout);">${escapeHtml(c.claim_b.statement_text)}</div>
-                    <div class="doc-section__sub">
-                      <span class="mono">${escapeHtml(c.claim_b.normalized_value)}${c.claim_b.unit ? ` ${escapeHtml(c.claim_b.unit)}` : ""}</span>
-                      · <button class="citation-pill" type="button" data-inspect-source="${escapeHtml(c.claim_b.source_id)}" data-jump-source="true">Inspect B</button>
-                    </div>
-                  </div>
-                  <p class="conflict-note">${escapeHtml(c.resolution_note)}</p>
-                </div>
-              `
-                )
-                .join("")}
-            </div>`
-          : `<p class="empty-state__desc">No cross-source contradictions detected across ${claims.length} extracted claims.</p>`
-      }
+      <div>
+        ${conflicts
+          .map(
+            (c) => `
+          <div class="conflict-block">
+            <div class="conflict-block__head">
+              <strong>${escapeHtml(c.entity)} · ${escapeHtml(c.attribute)}</strong>
+              ${renderStatusPill("contested", c.conflict_type.replaceAll("_", " "))}
+            </div>
+            <div class="conflict-claim">
+              <div class="conflict-claim__label">${escapeHtml(c.claim_a.source_domain)}</div>
+              <div class="conflict-claim__text" style="font-size: var(--text-callout);">${escapeHtml(c.claim_a.statement_text)}</div>
+              <div class="doc-section__sub">
+                <span class="mono">${escapeHtml(c.claim_a.normalized_value)}${c.claim_a.unit ? ` ${escapeHtml(c.claim_a.unit)}` : ""}</span>
+                · <button class="citation-link" type="button" data-inspect-source="${escapeHtml(c.claim_a.source_id)}" data-jump-source="true">Source</button>
+              </div>
+            </div>
+            <div class="conflict-claim">
+              <div class="conflict-claim__label">${escapeHtml(c.claim_b.source_domain)}</div>
+              <div class="conflict-claim__text" style="font-size: var(--text-callout);">${escapeHtml(c.claim_b.statement_text)}</div>
+              <div class="doc-section__sub">
+                <span class="mono">${escapeHtml(c.claim_b.normalized_value)}${c.claim_b.unit ? ` ${escapeHtml(c.claim_b.unit)}` : ""}</span>
+                · <button class="citation-link" type="button" data-inspect-source="${escapeHtml(c.claim_b.source_id)}" data-jump-source="true">Source</button>
+              </div>
+            </div>
+            <p class="conflict-note">${escapeHtml(c.resolution_note)}</p>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
     `;
   }
 
@@ -489,17 +471,14 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
       const resp = state.searchResponse;
       return `
         <div class="settings-group">
-          <h3 class="settings-group__title">Search Sanitization Audit</h3>
-          <div class="inspector-row" style="cursor:default;">
-            <div class="doc-section__sub">Sanitized Outbound Query</div>
-            <div class="mono">${escapeHtml(resp.sanitized_query)}</div>
-            <div class="doc-section__sub">
-              Redactions: ${resp.redactions_applied?.length ? escapeHtml(resp.redactions_applied.join(", ")) : "None"}
-            </div>
+          <h3 class="settings-group__title">Outbound Query</h3>
+          <div class="mono">${escapeHtml(resp.sanitized_query)}</div>
+          <div class="doc-section__sub">
+            Redactions: ${resp.redactions_applied?.length ? escapeHtml(resp.redactions_applied.join(", ")) : "None"}
           </div>
         </div>
         <div class="settings-group">
-          <h3 class="settings-group__title">Provider Diagnostics</h3>
+          <h3 class="settings-group__title">Providers</h3>
           <div class="inspector-list">
             ${(resp.provider_diagnostics || [])
               .map(
@@ -509,11 +488,8 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
                   <strong>${escapeHtml(d.provider)}</strong>
                   ${renderStatusPill(d.success ? "completed" : "failed", d.success ? "OK" : "Error")}
                 </div>
-                <div class="inspector-row__meta mono">
-                  <span>${d.result_count} hits</span>
-                  <span>· ${Math.round(d.latency_ms)} ms</span>
-                </div>
-                ${d.error ? `<div class="doc-section__sub" style="color:var(--signal-conflict);">${escapeHtml(d.error)}</div>` : ""}
+                <div class="inspector-row__meta mono">${d.result_count} hits · ${Math.round(d.latency_ms)} ms</div>
+                ${d.error ? `<div class="doc-section__sub" style="color:var(--tone-negative);">${escapeHtml(d.error)}</div>` : ""}
               </div>
             `
               )
@@ -524,7 +500,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
     }
 
     if (!pkg) {
-      return `<p class="empty-state__desc">Audit logs appear after running or selecting a local research task.</p>`;
+      return `<p class="coverage-summary-text">No active run to audit.</p>`;
     }
 
     const cov = pkg.coverage || {};
@@ -534,45 +510,36 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
 
     return `
       <div class="settings-group">
-        <h3 class="settings-group__title">Execution Summary</h3>
-        <div class="inspector-row" style="cursor:default;">
-          <dl class="kv-table" style="margin:0;">
-            <dt class="kv-table__key">Research ID</dt>
-            <dd class="kv-table__val mono" style="margin:0;">${escapeHtml(pkg.research_id)}</dd>
-            <dt class="kv-table__key">Planner</dt>
-            <dd class="kv-table__val mono" style="margin:0;">${escapeHtml(meta.planner_used || pkg.query_plan?.planner_name || "—")}</dd>
-            <dt class="kv-table__key">Duration</dt>
-            <dd class="kv-table__val mono" style="margin:0;">${formatNumber(Math.round(meta.duration_ms || 0))} ms</dd>
-            <dt class="kv-table__key">Cloud LLM</dt>
-            <dd class="kv-table__val" style="margin:0;">${meta.cloud_llm_used ? "Yes" : "Never used (Local deterministic)"}</dd>
-            <dt class="kv-table__key">Docs</dt>
-            <dd class="kv-table__val mono" style="margin:0;">
-              ${meta.fetched_documents ?? 0} fetched · ${meta.duplicate_documents ?? 0} dedup · ${meta.failed_documents ?? 0} failed
-            </dd>
-            <dt class="kv-table__key">Coverage</dt>
-            <dd class="kv-table__val" style="margin:0;">
-              ${cov.covered_subtopics ?? 0} covered · ${cov.partial_subtopics ?? 0} partial · ${cov.missing_subtopics ?? 0} missing
-            </dd>
-          </dl>
-        </div>
+        <h3 class="settings-group__title">Run Summary</h3>
+        <dl class="kv-table" style="margin:0;">
+          <dt class="kv-table__key">ID</dt>
+          <dd class="kv-table__val mono" style="margin:0;">${escapeHtml(pkg.research_id)}</dd>
+          <dt class="kv-table__key">Duration</dt>
+          <dd class="kv-table__val mono" style="margin:0;">${formatNumber(Math.round(meta.duration_ms || 0))} ms</dd>
+          <dt class="kv-table__key">Documents</dt>
+          <dd class="kv-table__val mono" style="margin:0;">${meta.fetched_documents ?? 0} fetched · ${meta.duplicate_documents ?? 0} dedup · ${meta.failed_documents ?? 0} failed</dd>
+          <dt class="kv-table__key">Coverage</dt>
+          <dd class="kv-table__val" style="margin:0;">${cov.covered_subtopics ?? 0} covered · ${cov.partial_subtopics ?? 0} partial · ${cov.missing_subtopics ?? 0} missing</dd>
+        </dl>
       </div>
 
       <div class="settings-group">
-        <h3 class="settings-group__title">Outbound Query Disclosure (${queries.length})</h3>
+        <h3 class="settings-group__title">Outbound Queries (${queries.length})</h3>
         <div class="inspector-list">
           ${queries
             .map(
               (q) => `
             <div class="inspector-row" style="cursor:default;">
               <div class="inspector-head__top">
-                <span class="status-pill">${escapeHtml(q.provider)} · ${q.is_external ? "External" : "Local Mock"}</span>
+                <span class="mono">${escapeHtml(q.provider)} (${q.is_external ? "external" : "mock"})</span>
                 <span class="doc-section__sub mono">${q.result_count ?? 0} hits</span>
               </div>
               <div class="mono" style="word-break:break-word;">${escapeHtml(q.sanitized_query)}</div>
-              <div class="doc-section__sub">
-                Intent: ${escapeHtml(q.intent)}
-                ${q.redactions_applied?.length ? ` · Redacted: ${escapeHtml(q.redactions_applied.join(", "))}` : ""}
-              </div>
+              ${
+                q.redactions_applied?.length
+                  ? `<div class="doc-section__sub">Redacted: ${escapeHtml(q.redactions_applied.join(", "))}</div>`
+                  : ""
+              }
             </div>
           `
             )
@@ -581,7 +548,7 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
       </div>
 
       <div class="settings-group">
-        <h3 class="settings-group__title">Provider Diagnostics (${diagnostics.length})</h3>
+        <h3 class="settings-group__title">Provider Diagnostics</h3>
         <div class="inspector-list">
           ${diagnostics
             .map(
@@ -591,11 +558,8 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
                 <strong>${escapeHtml(d.provider)}</strong>
                 ${renderStatusPill(d.success ? "completed" : "failed", d.success ? "OK" : "Failed")}
               </div>
-              <div class="inspector-row__meta mono">
-                <span>${d.result_count} hits</span>
-                <span>· ${Math.round(d.latency_ms)} ms</span>
-              </div>
-              ${d.error ? `<div class="doc-section__sub" style="color:var(--signal-conflict);">${escapeHtml(d.error)}</div>` : ""}
+              <div class="inspector-row__meta mono">${d.result_count} hits · ${Math.round(d.latency_ms)} ms</div>
+              ${d.error ? `<div class="doc-section__sub" style="color:var(--tone-negative);">${escapeHtml(d.error)}</div>` : ""}
             </div>
           `
             )
@@ -618,9 +582,9 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
     } else if (pkg) {
       const sCount = pkg.sources?.length ?? 0;
       const eCount = pkg.evidence?.length ?? 0;
-      countEl.textContent = `${sCount} src · ${eCount} ev`;
+      countEl.textContent = `${sCount} src · ${eCount} pass`;
     } else {
-      countEl.textContent = "No run loaded";
+      countEl.textContent = "";
     }
 
     const sig = JSON.stringify({

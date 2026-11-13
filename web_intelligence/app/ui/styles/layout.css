@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Layout Architecture — 3-Pane Desktop Split View & Responsive Adaptation
+   Layout Architecture — 3-Pane Split Workspace & Responsive Adaptation
    ========================================================================== */
 
 *,
@@ -19,8 +19,7 @@ body {
   height: 100%;
   font-family: var(--font-ui);
   font-size: var(--text-body);
-  line-height: 1.4;
-  letter-spacing: -0.006em;
+  line-height: 1.45;
   color: var(--text-primary);
   background-color: var(--surface-canvas);
   -webkit-font-smoothing: antialiased;
@@ -28,7 +27,6 @@ body {
   overflow: hidden;
 }
 
-/* Skip link for keyboard users */
 .skip-link {
   position: absolute;
   left: -9999px;
@@ -46,7 +44,6 @@ body {
   left: 12px;
 }
 
-/* Unified Keyboard Focus Ring (Focus and Selection HIG) */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -64,7 +61,7 @@ body {
   border: 0;
 }
 
-/* --- App Window Shell ---------------------------------------------------- */
+/* --- Window Shell ------------------------------------------------------ */
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -74,20 +71,20 @@ body {
   background: var(--surface-canvas);
 }
 
-/* --- Functional Layer: Unified Window Toolbar ---------------------------- */
+/* --- Unified Window Toolbar -------------------------------------------- */
 .app-toolbar {
   position: relative;
   z-index: 30;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   min-height: var(--toolbar-height);
   padding: var(--space-2) var(--space-4);
   background: var(--surface-toolbar-glass);
-  -webkit-backdrop-filter: blur(24px) saturate(1.35);
-  backdrop-filter: blur(24px) saturate(1.35);
-  border-bottom: 1px solid var(--border-hairline);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
@@ -106,25 +103,13 @@ body {
 }
 
 .toolbar-group--leading {
-  justify-content: flex-start;
   gap: var(--space-3);
-}
-
-.toolbar-group--center {
-  justify-content: center;
-  gap: var(--space-3);
+  flex: 1 1 auto;
 }
 
 .toolbar-group--trailing {
-  justify-content: flex-end;
   gap: var(--space-2);
-}
-
-.toolbar-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 .toolbar-title {
@@ -135,18 +120,18 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 28ch;
+  max-width: 30ch;
 }
 
-/* --- Compact Mobile Pane Switcher (hidden on regular desktop) ------------ */
+/* --- Compact Mobile Pane Switcher -------------------------------------- */
 .compact-pane-bar {
   display: none;
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-sidebar);
 }
 
-/* --- 3-Pane Split Workspace ---------------------------------------------- */
+/* --- 3-Pane Split Workspace -------------------------------------------- */
 .split-workspace {
   position: relative;
   flex: 1 1 auto;
@@ -156,17 +141,16 @@ body {
   overflow: hidden;
 }
 
-/* Leading Sidebar */
 .pane-sidebar {
   flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);
-  min-width: 220px;
-  max-width: 380px;
+  min-width: 210px;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--surface-sidebar);
-  border-right: 1px solid var(--border-hairline);
+  border-right: 1px solid var(--border-subtle);
 }
 
 .app-shell.is-sidebar-collapsed .pane-sidebar,
@@ -174,7 +158,6 @@ body {
   display: none;
 }
 
-/* Primary Center Canvas */
 .pane-workspace {
   flex: 1 1 auto;
   min-width: 340px;
@@ -190,7 +173,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--space-5) var(--space-6) var(--space-8);
+  padding: var(--space-6) var(--space-6) 64px;
 }
 
 .workspace-column {
@@ -202,17 +185,16 @@ body {
   gap: var(--space-5);
 }
 
-/* Trailing Evidence Inspector */
 .pane-inspector {
   flex: 0 0 var(--inspector-width);
   width: var(--inspector-width);
-  min-width: 300px;
-  max-width: 560px;
+  min-width: 290px;
+  max-width: 540px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--surface-inspector);
-  border-left: 1px solid var(--border-hairline);
+  border-left: 1px solid var(--border-subtle);
 }
 
 .app-shell.is-inspector-collapsed .pane-inspector,
@@ -220,7 +202,7 @@ body {
   display: none;
 }
 
-/* Thin 1px Split Resizer Hit Track (Split Views HIG: 1pt visible hairline) */
+/* --- Split Resizers ---------------------------------------------------- */
 .split-resizer {
   position: relative;
   flex: 0 0 1px;
@@ -252,19 +234,8 @@ body {
   background: var(--accent);
 }
 
-/* --- Medium Desktop / Narrow Window (768px - 1099px) --------------------- */
+/* --- Medium Window Fallback (Drawer Inspector) ------------------------- */
 @media (max-width: 1099px) {
-  .app-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: var(--space-2);
-  }
-
-  .toolbar-group--center {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    padding-top: 2px;
-  }
-
   .split-resizer[data-resizer="inspector"] {
     display: none;
   }
@@ -274,14 +245,14 @@ body {
     top: 0;
     right: 0;
     bottom: 0;
-    width: min(420px, 88vw);
+    width: min(400px, 88vw);
     max-width: none;
     z-index: 25;
     box-shadow: var(--shadow-popover);
   }
 }
 
-/* --- Compact Layout (< 768px) -------------------------------------------- */
+/* --- Compact Layout (< 768px) ------------------------------------------ */
 @media (max-width: 767px) {
   :root {
     --control-min-size: 44px;
@@ -292,7 +263,7 @@ body {
   }
 
   .toolbar-title {
-    max-width: 18ch;
+    max-width: 16ch;
   }
 
   .toolbar-hide-compact {

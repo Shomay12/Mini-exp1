@@ -1,6 +1,5 @@
 /**
- * Main Research Workspace — Prominent Query Composer, Task Controls, Active Progress,
- * Privacy Disclosures, Long-Form Evidence Synthesis, Inline Citations, and Conflict Comparison.
+ * Main Workspace — Clean query composer, slim progress bar, and readable research document.
  */
 
 import {
@@ -14,33 +13,20 @@ import {
   truncateText,
 } from "../formatters.js";
 
-const PIPELINE_STAGES = [
-  { id: "planning", label: "Plan" },
-  { id: "searching", label: "Search" },
-  { id: "retrieving", label: "Retrieve" },
-  { id: "processing", label: "Extract & Verify" },
-  { id: "completed", label: "Package" },
-];
-
-const STARTER_PROMPTS = [
-  "Aurora-SLM-4B release date and small language models benchmarks and quantum entanglement routing",
-  "How do 4-bit quantized small language models compare for local deployment and BM25 retrieval grounding?",
-  "Evaluate hybrid BM25 + cross-encoder reranking trade-offs on small language model context budgets",
-];
+const PIPELINE_STAGES = ["planning", "searching", "retrieving", "processing", "completed"];
 
 export function createWorkspace({
   store,
   onSubmitQuery,
   onCancelRun,
   onInspectSource,
-  onInspectEvidence,
   onSwitchToResearchWithQuery,
 }) {
   const root = document.getElementById("workspace-root");
   root.innerHTML = `
-    <section id="ws-composer" aria-label="Research input"></section>
-    <section id="ws-status" aria-label="Research progress and status"></section>
-    <section id="ws-results" aria-label="Research results"></section>
+    <section id="ws-composer" aria-label="Query input"></section>
+    <section id="ws-status" aria-label="Execution status"></section>
+    <section id="ws-results" aria-label="Results"></section>
   `;
 
   const composerEl = document.getElementById("ws-composer");
@@ -54,7 +40,6 @@ export function createWorkspace({
   let lastComposerSig = "";
   let lastResultsSig = "";
 
-  // Close inline limits popover when clicking outside
   document.addEventListener("click", (event) => {
     if (!limitsPopoverOpen) return;
     if (!event.target.closest("#limits-popover-anchor")) {
@@ -73,8 +58,6 @@ export function createWorkspace({
       if (runBtn && !store.getState().isRunning) {
         runBtn.disabled = event.target.value.trim().length < 2;
       }
-      const counter = composerEl.querySelector("#composer-char-count");
-      if (counter) counter.textContent = `${event.target.value.length} / 2,000`;
     }
   });
 
@@ -142,20 +125,6 @@ export function createWorkspace({
   });
 
   resultsEl.addEventListener("click", (event) => {
-    const starterBtn = event.target.closest("[data-starter-prompt]");
-    if (starterBtn) {
-      const prompt = starterBtn.dataset.starterPrompt;
-      store.setState({ queryDraft: prompt });
-      const ta = composerEl.querySelector("#research-query-input");
-      if (ta) {
-        ta.value = prompt;
-        ta.focus();
-        const runBtn = composerEl.querySelector("#btn-submit-query");
-        if (runBtn) runBtn.disabled = false;
-      }
-      return;
-    }
-
     const citeBtn = event.target.closest("[data-cite-source]");
     if (citeBtn) {
       onInspectSource(citeBtn.dataset.citeSource, citeBtn.dataset.citeEvidence || null);
@@ -207,8 +176,6 @@ export function createWorkspace({
       ta.value = text;
       const runBtn = composerEl.querySelector("#btn-submit-query");
       if (runBtn) runBtn.disabled = text.trim().length < 2 || store.getState().isRunning;
-      const counter = composerEl.querySelector("#composer-char-count");
-      if (counter) counter.textContent = `${text.length} / 2,000`;
     }
   }
 
@@ -232,14 +199,14 @@ export function createWorkspace({
         ? state.prefs.selectedProviders[0]
         : "auto";
     const isSearch = state.mode === "search";
-    const submitLabel = isSearch ? "Search Web" : "Run Research";
+    const submitLabel = isSearch ? "Search" : "Research";
     const placeholder = isSearch
-      ? "Enter a search query (PII, bearer tokens, and local paths are redacted before outbound search)…"
-      : "Ask a research question to retrieve, deduplicate, rank, and cross-verify web evidence locally…";
+      ? "Search query…"
+      : "Research question… (⌘Enter to run)";
 
     composerEl.innerHTML = `
       <div class="composer">
-        <label class="sr-only" for="research-query-input">Research query</label>
+        <label class="sr-only" for="research-query-input">Query</label>
         <textarea
           id="research-query-input"
           class="composer__textarea"
@@ -253,11 +220,11 @@ export function createWorkspace({
             <label class="field-inline">
               <span>Provider</span>
               <select id="inline-provider-select" class="select-control" ${state.isRunning ? "disabled" : ""}>
-                <option value="auto" ${selectedProvider === "auto" ? "selected" : ""}>Auto (Router)</option>
+                <option value="auto" ${selectedProvider === "auto" ? "selected" : ""}>Auto</option>
                 ${providers
                   .map(
                     (p) =>
-                      `<option value="${escapeHtml(p.name)}" ${selectedProvider === p.name ? "selected" : ""}>${escapeHtml(p.name)}${p.is_mock ? " (offline)" : ""}</option>`
+                      `<option value="${escapeHtml(p.name)}" ${selectedProvider === p.name ? "selected" : ""}>${escapeHtml(p.name)}${p.is_mock ? " (mock)" : ""}</option>`
                   )
                   .join("")}
               </select>
@@ -266,16 +233,16 @@ export function createWorkspace({
             <div id="limits-popover-anchor" class="popover-anchor">
               <button
                 id="btn-limits-popover"
-                class="btn"
+                class="btn btn--quiet"
                 type="button"
                 aria-expanded="${String(limitsPopoverOpen)}"
                 aria-controls="limits-popover"
               >
-                <span>Limits: ${state.prefs.maxResultsPerQuery} res · ${state.prefs.maxFetchUrls} URLs…</span>
+                <span>Limits (${state.prefs.maxResultsPerQuery} / ${state.prefs.maxFetchUrls})</span>
               </button>
               <div id="limits-popover" class="popover-panel" ${limitsPopoverOpen ? "" : "hidden"}>
                 <div class="form-grid-row">
-                  <label for="inline-max-results">Results / subquery</label>
+                  <label for="inline-max-results">Results / query</label>
                   <input id="inline-max-results" class="number-control" type="number" min="1" max="20" value="${state.prefs.maxResultsPerQuery}" />
                 </div>
                 <div class="form-grid-row">
@@ -288,12 +255,9 @@ export function createWorkspace({
                 </div>
               </div>
             </div>
-
-            <span id="composer-char-count" class="doc-section__sub mono">${currentDraft.length} / 2,000</span>
           </div>
 
           <div class="composer__actions">
-            <span class="doc-section__sub toolbar-hide-compact"><span class="kbd">⌘Enter</span></span>
             ${
               state.isRunning
                 ? `<button id="btn-cancel-run" class="btn" type="button">Cancel</button>`
@@ -318,116 +282,79 @@ export function createWorkspace({
 
     if (state.backendError) {
       blocks.push(`
-        <div class="banner banner--error" role="alert">
-          <div>
-            <strong>Backend Connection Unavailable</strong>
-            <div style="margin-top:4px;">${escapeHtml(state.backendError)}. Start FastAPI with <span class="mono">uvicorn web_intelligence.app.main:app --reload</span> and reload.</div>
-          </div>
+        <div class="banner--error" role="alert">
+          <strong>Backend unavailable:</strong> ${escapeHtml(state.backendError)}
         </div>
       `);
     }
 
     if (state.workspaceError) {
       blocks.push(`
-        <div class="banner banner--error" role="alert">
-          <div>
-            <strong>Execution Did Not Complete</strong>
-            <div style="margin-top:4px;">${escapeHtml(state.workspaceError)}</div>
-          </div>
+        <div class="banner--error" role="alert">
+          ${escapeHtml(state.workspaceError)}
         </div>
       `);
     }
 
     if (state.isRunning) {
       const p = state.activeProgress || { current_stage: "planning", completed_stages: [] };
-      const stageIdx = Math.max(
-        0,
-        PIPELINE_STAGES.findIndex((s) => s.id === p.current_stage)
-      );
-      const pct = Math.min(95, Math.max(12, Math.round(((stageIdx + 1) / PIPELINE_STAGES.length) * 100)));
-      const stageDescription = describeStage(p.current_stage, state.mode);
+      const stageIdx = Math.max(0, PIPELINE_STAGES.indexOf(p.current_stage));
+      const pct = Math.min(95, Math.max(15, Math.round(((stageIdx + 1) / PIPELINE_STAGES.length) * 100)));
 
       blocks.push(`
         <div class="progress-panel" role="status" aria-live="polite">
           <div class="progress-panel__head">
             <div class="progress-panel__title">
               ${ICONS.running}
-              <span>${escapeHtml(stageDescription)}</span>
+              <span>${escapeHtml(describeStage(p.current_stage, state.mode))}</span>
             </div>
-            <button id="btn-cancel-progress" class="btn" type="button">Stop Waiting</button>
+            <button id="btn-cancel-progress" class="btn btn--quiet" type="button">Cancel</button>
           </div>
           <div class="progress-track" aria-hidden="true">
             <div class="progress-track__bar" style="width: ${pct}%;"></div>
           </div>
-          <div class="progress-stages">
-            ${PIPELINE_STAGES.map((st, idx) => {
-              const isDone = (p.completed_stages || []).includes(st.id) || idx < stageIdx;
-              const isCurrent = st.id === p.current_stage;
-              const cls = isDone ? "is-done" : isCurrent ? "is-current" : "";
-              return `<span class="progress-stage ${cls}">${isDone ? "✓" : isCurrent ? "●" : "○"} ${escapeHtml(st.label)}</span>`;
-            }).join("")}
-          </div>
           <div class="progress-telemetry">
-            <span>Planned queries: ${p.queries_planned ?? 0}</span>
-            <span>URLs found: ${p.urls_found ?? 0}</span>
-            <span>Fetched: ${p.documents_fetched ?? 0}</span>
-            <span>Deduplicated: ${p.duplicates_removed ?? 0}</span>
-            <span>Evidence chunks: ${p.evidence_items_count ?? 0}</span>
+            ${p.queries_planned ?? 0} queries · ${p.urls_found ?? 0} URLs · ${p.documents_fetched ?? 0} fetched · ${p.evidence_items_count ?? 0} passages
           </div>
         </div>
       `);
     }
 
-    // Outbound Query Disclosure & Privacy Notice when results are loaded
     const disclosed =
       state.mode === "research"
         ? state.researchPackage?.search_queries || []
         : state.searchResponse?.disclosed_queries || [];
-    const privacyNotice = state.researchPackage?.metadata?.privacy_notice || "";
 
-    if (disclosed.length > 0 || privacyNotice) {
+    if (disclosed.length > 0) {
       const totalRedactions = disclosed.reduce((sum, q) => sum + (q.redactions_applied?.length || 0), 0);
       blocks.push(`
-        <div class="banner banner--privacy">
-          <div style="width:100%;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-              <div style="display:flex; align-items:center; gap:8px;">
-                ${ICONS.shield}
-                <span>
-                  <strong>Outbound Disclosure:</strong> ${disclosed.length} sanitized quer${disclosed.length === 1 ? "y" : "ies"}
-                  ${totalRedactions > 0 ? `(${totalRedactions} redaction${totalRedactions === 1 ? "" : "s"} applied)` : "(no PII/secrets detected)"}
-                </span>
-              </div>
-              <button
-                id="btn-toggle-outbound"
-                class="disclosure-btn"
-                type="button"
-                aria-expanded="${String(outboundExpanded)}"
-                aria-controls="outbound-disclosure-body"
-              >
-                ${ICONS.triangle}
-                <span>Inspect Outbound Queries</span>
-              </button>
-            </div>
-            <div id="outbound-disclosure-body" class="disclosure-body" ${outboundExpanded ? "" : "hidden"}>
-              ${privacyNotice ? `<p style="margin:0; color:var(--text-secondary);">${escapeHtml(privacyNotice)}</p>` : ""}
-              ${disclosed
-                .map(
-                  (q) => `
-                  <div style="display:flex; flex-direction:column; gap:2px; padding-top:4px;">
-                    <div>
-                      <span class="status-pill">${escapeHtml(q.provider)} · ${q.is_external ? "External" : "Local Mock"}</span>
-                      <span class="mono">${escapeHtml(q.sanitized_query)}</span>
-                    </div>
-                    <div class="doc-section__sub">
-                      Intent: ${escapeHtml(q.intent)} · Results: ${q.result_count ?? 0}
-                      ${q.redactions_applied?.length ? ` · Redacted: ${escapeHtml(q.redactions_applied.join(", "))}` : ""}
-                    </div>
-                  </div>
-                `
-                )
-                .join("")}
-            </div>
+        <div class="outbound-line">
+          <button
+            id="btn-toggle-outbound"
+            class="disclosure-btn"
+            type="button"
+            aria-expanded="${String(outboundExpanded)}"
+            aria-controls="outbound-disclosure-body"
+          >
+            ${ICONS.triangle}
+            <span>
+              ${disclosed.length} outbound quer${disclosed.length === 1 ? "y" : "ies"} sent${
+                totalRedactions > 0 ? ` (${totalRedactions} redacted)` : ""
+              }
+            </span>
+          </button>
+          <div id="outbound-disclosure-body" class="disclosure-body" ${outboundExpanded ? "" : "hidden"}>
+            ${disclosed
+              .map(
+                (q) => `
+                <div>
+                  <span class="mono">${escapeHtml(q.provider)}</span> ·
+                  <span class="mono">${escapeHtml(q.sanitized_query)}</span>
+                  <span class="doc-section__sub"> (${q.result_count ?? 0} hits${q.redactions_applied?.length ? `, redacted: ${escapeHtml(q.redactions_applied.join(", "))}` : ""})</span>
+                </div>
+              `
+              )
+              .join("")}
           </div>
         </div>
       `);
@@ -437,36 +364,23 @@ export function createWorkspace({
   }
 
   function describeStage(stage, mode) {
-    if (mode === "search") return "Sanitizing query and querying configured search providers…";
+    if (mode === "search") return "Searching providers…";
     const copy = {
-      pending: "Initializing local research pipeline…",
-      planning: "Decomposing research question into subtopics and sanitized queries…",
-      searching: "Querying search providers with outbound PII redaction…",
-      retrieving: "Fetching candidate webpages through SSRF & robots.txt safeguards…",
-      processing: "Deduplicating documents, ranking passages, extracting claims & checking coverage…",
-      completed: "Finalizing local ResearchPackage…",
+      pending: "Starting…",
+      planning: "Planning queries…",
+      searching: "Searching providers…",
+      retrieving: "Fetching webpages…",
+      processing: "Extracting passages & checking claims…",
+      completed: "Done",
     };
-    return copy[stage] || "Executing local research pipeline…";
+    return copy[stage] || "Working…";
   }
 
-  function renderEmptyState(state) {
+  function renderEmptyState() {
     return `
-      <div class="empty-state">
-        <h2 class="empty-state__title">Local-First Research Workbench</h2>
-        <p class="empty-state__desc">
-          Queries are sanitized locally, routed through SSRF-guarded webpage retrieval, deduplicated across four tiers,
-          ranked with deterministic BM25 signals, and cross-checked for claim conflicts and coverage gaps — with zero cloud LLM dependency.
-        </p>
-        <div class="starter-list" aria-label="Sample research questions">
-          ${STARTER_PROMPTS.map(
-            (prompt) => `
-              <button class="starter-prompt" type="button" data-starter-prompt="${escapeHtml(prompt)}">
-                <span>${escapeHtml(prompt)}</span>
-                <span class="doc-section__sub">Use Prompt</span>
-              </button>
-            `
-          ).join("")}
-        </div>
+      <div class="empty-blank">
+        <h2 class="empty-blank__title">Research Workbench</h2>
+        <p class="empty-blank__hint">Enter a question or select a run from History.</p>
       </div>
     `;
   }
@@ -474,68 +388,48 @@ export function createWorkspace({
   function renderResearchPackage(pkg, state) {
     const meta = pkg.metadata || {};
     const cov = pkg.coverage || {};
-    const plan = pkg.query_plan;
     const totalBudget = Math.max(512, Number(state.prefs.contextBudgetTokens) || 8192);
     const reserved = Math.min(totalBudget - 256, Math.max(0, Number(state.prefs.reservedOutputTokens) || 1024));
     const effectiveBudget = Math.max(256, totalBudget - reserved);
 
-    // Map source_id -> 1-based citation index for readable inline citations
     const sourceIndexMap = new Map();
     (pkg.sources || []).forEach((s, idx) => sourceIndexMap.set(s.source_id, idx + 1));
 
-    // Coverage section
     const subtopics = cov.subtopic_details || [];
     const coverageHtml = `
       <section class="doc-section" aria-labelledby="heading-coverage">
         <div class="doc-section__heading">
-          <h2 id="heading-coverage" style="margin:0; font-size:inherit;">1. Query Decomposition & Research Coverage</h2>
+          <h2 id="heading-coverage" style="margin:0; font-size:inherit;">Coverage</h2>
           ${renderStatusPill(cov.coverage_status || "insufficient")}
         </div>
-        <div class="coverage-box">
-          ${
-            plan
-              ? `<div class="doc-section__sub">
-                  Intent: <strong>${escapeHtml(plan.intent)}</strong> · Planner: <span class="mono">${escapeHtml(plan.planner_name)}</span>
-                  ${plan.keywords?.length ? ` · Keywords: ${escapeHtml(plan.keywords.slice(0, 8).join(", "))}` : ""}
-                </div>`
-              : ""
-          }
-          ${cov.summary ? `<p class="coverage-summary-text">${escapeHtml(cov.summary)}</p>` : ""}
-          ${
-            subtopics.length
-              ? `<div class="subtopic-grid">
-                  ${subtopics
-                    .map(
-                      (st) => `
-                      <div class="subtopic-item">
-                        <div class="subtopic-item__top">
-                          <span class="subtopic-item__name">${escapeHtml(st.subtopic)}</span>
-                          ${renderStatusPill(st.status)}
-                        </div>
-                        <div class="subtopic-item__notes">
-                          ${st.independent_domain_count} independent domain${st.independent_domain_count === 1 ? "" : "s"}
-                          ${st.has_conflict ? " · Has conflict" : ""}
-                          ${st.notes ? ` — ${escapeHtml(st.notes)}` : ""}
-                        </div>
+        ${cov.summary ? `<p class="coverage-summary-text">${escapeHtml(cov.summary)}</p>` : ""}
+        ${
+          subtopics.length
+            ? `<div class="subtopic-list">
+                ${subtopics
+                  .map(
+                    (st) => `
+                    <div class="subtopic-row">
+                      <div>
+                        <span class="subtopic-row__name">${escapeHtml(st.subtopic)}</span>
+                        <span class="doc-section__sub"> · ${st.independent_domain_count} domain${st.independent_domain_count === 1 ? "" : "s"}${st.has_conflict ? " · conflict" : ""}</span>
                       </div>
-                    `
-                    )
-                    .join("")}
-                </div>`
-              : ""
-          }
-          ${
-            cov.unanswered_questions?.length
-              ? `<div style="font-size: var(--text-callout); color: var(--text-secondary);">
-                  <strong>Unanswered Gaps:</strong> ${escapeHtml(cov.unanswered_questions.join(" · "))}
-                </div>`
-              : ""
-          }
-        </div>
+                      ${renderStatusPill(st.status)}
+                    </div>
+                  `
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
+        ${
+          cov.unanswered_questions?.length
+            ? `<div class="doc-section__sub">Gaps: ${escapeHtml(cov.unanswered_questions.join(" · "))}</div>`
+            : ""
+        }
       </section>
     `;
 
-    // Ranked Evidence Synthesis section with running context-budget cutoff
     let runningTokens = 0;
     let cutoffInserted = false;
     const evidenceItems = pkg.evidence || [];
@@ -551,7 +445,7 @@ export function createWorkspace({
               cutoffInserted = true;
               cutoffHtml = `
                 <div class="budget-cutoff-divider" role="note">
-                  <span>Context Budget Limit Reached (${formatNumber(effectiveBudget)} available tokens)</span>
+                  <span>Context budget limit (${formatNumber(effectiveBudget)} tokens)</span>
                 </div>
               `;
             }
@@ -572,16 +466,15 @@ export function createWorkspace({
                 <p class="evidence-entry__prose">${escapeHtml(item.passage_text)}</p>
                 <div class="evidence-entry__footer">
                   <button
-                    class="citation-pill"
+                    class="citation-link"
                     type="button"
                     data-cite-source="${escapeHtml(item.source_id)}"
                     data-cite-evidence="${escapeHtml(item.evidence_id)}"
-                    title="Inspect source ${escapeHtml(item.source_url)}"
+                    title="Inspect ${escapeHtml(item.source_url)}"
                   >
-                    <span>[${citeNum}] ${escapeHtml(item.source_domain)}</span>
+                    [${citeNum}] ${escapeHtml(item.source_domain)}
                   </button>
-                  <span class="doc-section__sub mono">${formatNumber(tokens)} tok · chars ${item.char_start}–${item.char_end}</span>
-                  <span class="doc-section__sub">Relevance: <strong class="mono">${formatScore(rel.combined_score)}</strong></span>
+                  <span class="doc-section__sub mono">score ${formatScore(rel.combined_score)} · ${formatNumber(tokens)} tok</span>
                   <button
                     class="disclosure-btn"
                     type="button"
@@ -589,58 +482,51 @@ export function createWorkspace({
                     data-toggle-evidence="${escapeHtml(item.evidence_id)}"
                   >
                     ${ICONS.triangle}
-                    <span>Relevance &amp; Provenance</span>
+                    <span>Details</span>
                   </button>
                 </div>
                 <div class="disclosure-body" data-evidence-body="${escapeHtml(item.evidence_id)}" ${isExpanded ? "" : "hidden"}>
                   <div class="signal-metrics-grid">
-                    <div class="metric-pair"><span class="metric-pair__label">Combined Relevance</span><span class="metric-pair__value">${formatScore(rel.combined_score)}</span></div>
-                    <div class="metric-pair"><span class="metric-pair__label">BM25 Score</span><span class="metric-pair__value">${formatScore(rel.bm25_score)}</span></div>
-                    <div class="metric-pair"><span class="metric-pair__label">Keyword Match</span><span class="metric-pair__value">${formatScore(rel.keyword_match_score)}</span></div>
-                    <div class="metric-pair"><span class="metric-pair__label">Heading Match</span><span class="metric-pair__value">${formatScore(rel.heading_relevance_score)}</span></div>
-                    <div class="metric-pair"><span class="metric-pair__label">Query Coverage</span><span class="metric-pair__value">${formatScore(rel.query_term_coverage)}</span></div>
-                    <div class="metric-pair"><span class="metric-pair__label">Independent Sources</span><span class="metric-pair__value">${corr.independent_supporting_sources ?? 0}</span></div>
-                  </div>
-                  <div class="doc-section__sub">
-                    <strong>Signal Separation:</strong> Relevance scores measure query-term alignment only and are not factual truth (${escapeHtml(item.provenance?.source_classification || "unknown")} source — ${escapeHtml(item.provenance?.classification_reason || "")}).
+                    <div class="metric-pair"><span class="metric-pair__label">Combined</span><span class="metric-pair__value">${formatScore(rel.combined_score)}</span></div>
+                    <div class="metric-pair"><span class="metric-pair__label">BM25</span><span class="metric-pair__value">${formatScore(rel.bm25_score)}</span></div>
+                    <div class="metric-pair"><span class="metric-pair__label">Keyword</span><span class="metric-pair__value">${formatScore(rel.keyword_match_score)}</span></div>
+                    <div class="metric-pair"><span class="metric-pair__label">Heading</span><span class="metric-pair__value">${formatScore(rel.heading_relevance_score)}</span></div>
+                    <div class="metric-pair"><span class="metric-pair__label">Term Cov</span><span class="metric-pair__value">${formatScore(rel.query_term_coverage)}</span></div>
+                    <div class="metric-pair"><span class="metric-pair__label">Domains</span><span class="metric-pair__value">${corr.independent_supporting_sources ?? 0}</span></div>
                   </div>
                 </div>
               </article>
             `;
           })
           .join("")
-      : `<p class="empty-state__desc">No evidence passages were extracted from the retrieved sources.</p>`;
+      : `<p class="coverage-summary-text">No passages extracted.</p>`;
 
-    // Claims & Conflicts section
     const conflicts = pkg.conflicts || [];
     const claims = pkg.claims || [];
     const conflictsHtml = conflicts.length
       ? conflicts
           .map(
             (c) => `
-            <div class="conflict-card">
-              <div class="conflict-card__head">
-                <div>
-                  <strong>${escapeHtml(c.entity)} · ${escapeHtml(c.attribute)}</strong>
-                  <div class="doc-section__sub">${escapeHtml(c.summary)}</div>
-                </div>
+            <div class="conflict-block">
+              <div class="conflict-block__head">
+                <strong>${escapeHtml(c.entity)} · ${escapeHtml(c.attribute)}</strong>
                 ${renderStatusPill("contested", c.conflict_type.replaceAll("_", " "))}
               </div>
               <div class="conflict-pair">
                 <div class="conflict-claim">
-                  <div class="conflict-claim__label">Claim A · ${escapeHtml(c.claim_a.source_domain)}</div>
+                  <div class="conflict-claim__label">${escapeHtml(c.claim_a.source_domain)}</div>
                   <p class="conflict-claim__text">${escapeHtml(c.claim_a.statement_text)}</p>
                   <div class="doc-section__sub">
-                    Normalized: <span class="mono">${escapeHtml(c.claim_a.normalized_value)}${c.claim_a.unit ? ` ${escapeHtml(c.claim_a.unit)}` : ""}</span>
-                    · <button class="disclosure-btn" style="padding:0 4px; color:var(--accent);" type="button" data-cite-source="${escapeHtml(c.claim_a.source_id)}">Inspect Source</button>
+                    <span class="mono">${escapeHtml(c.claim_a.normalized_value)}${c.claim_a.unit ? ` ${escapeHtml(c.claim_a.unit)}` : ""}</span>
+                    · <button class="citation-link" type="button" data-cite-source="${escapeHtml(c.claim_a.source_id)}">Inspect Source</button>
                   </div>
                 </div>
                 <div class="conflict-claim">
-                  <div class="conflict-claim__label">Claim B · ${escapeHtml(c.claim_b.source_domain)}</div>
+                  <div class="conflict-claim__label">${escapeHtml(c.claim_b.source_domain)}</div>
                   <p class="conflict-claim__text">${escapeHtml(c.claim_b.statement_text)}</p>
                   <div class="doc-section__sub">
-                    Normalized: <span class="mono">${escapeHtml(c.claim_b.normalized_value)}${c.claim_b.unit ? ` ${escapeHtml(c.claim_b.unit)}` : ""}</span>
-                    · <button class="disclosure-btn" style="padding:0 4px; color:var(--accent);" type="button" data-cite-source="${escapeHtml(c.claim_b.source_id)}">Inspect Source</button>
+                    <span class="mono">${escapeHtml(c.claim_b.normalized_value)}${c.claim_b.unit ? ` ${escapeHtml(c.claim_b.unit)}` : ""}</span>
+                    · <button class="citation-link" type="button" data-cite-source="${escapeHtml(c.claim_b.source_id)}">Inspect Source</button>
                   </div>
                 </div>
               </div>
@@ -649,7 +535,7 @@ export function createWorkspace({
           `
           )
           .join("")
-      : `<p class="empty-state__desc">No cross-source date, numeric, or polarity contradictions detected.</p>`;
+      : `<p class="coverage-summary-text">No conflicting claims detected.</p>`;
 
     const claimsDisclosureHtml = claims.length
       ? `
@@ -662,17 +548,17 @@ export function createWorkspace({
             aria-controls="claims-table-body"
           >
             ${ICONS.triangle}
-            <span>Extracted Factual Claims (${claims.length})</span>
+            <span>Extracted claims (${claims.length})</span>
           </button>
           <div id="claims-table-body" class="disclosure-body" ${claimsTableExpanded ? "" : "hidden"}>
             ${claims
               .map(
                 (cl) => `
-                <div style="padding: 6px 0; border-bottom: 1px solid var(--border-subtle);">
-                  <div><strong>${escapeHtml(cl.entity)}</strong> · ${escapeHtml(cl.attribute)}: <span class="mono">${escapeHtml(cl.normalized_value)}</span> (${escapeHtml(cl.value_type)})</div>
+                <div style="padding: 5px 0; border-bottom: 1px solid var(--border-subtle);">
+                  <div><strong>${escapeHtml(cl.entity)}</strong> · ${escapeHtml(cl.attribute)}: <span class="mono">${escapeHtml(cl.normalized_value)}${cl.unit ? ` ${escapeHtml(cl.unit)}` : ""}</span></div>
                   <div style="color:var(--text-secondary); margin-top:2px;">${escapeHtml(cl.statement_text)}</div>
                   <div class="doc-section__sub">
-                    <button class="disclosure-btn" style="padding:0; color:var(--accent);" type="button" data-cite-source="${escapeHtml(cl.source_id)}">${escapeHtml(cl.source_domain)}</button>
+                    <button class="citation-link" type="button" data-cite-source="${escapeHtml(cl.source_id)}">${escapeHtml(cl.source_domain)}</button>
                   </div>
                 </div>
               `
@@ -688,11 +574,10 @@ export function createWorkspace({
         <header class="doc-header">
           <h2 class="doc-header__title">${escapeHtml(pkg.original_query)}</h2>
           <div class="doc-header__meta">
-            ${renderStatusPill(pkg.research_status)}
-            <span>${meta.processed_documents ?? 0} processed (${meta.duplicate_documents ?? 0} deduplicated)</span>
-            <span>· ${meta.evidence_items ?? 0} evidence passages</span>
+            <span>${meta.processed_documents ?? 0} sources (${meta.duplicate_documents ?? 0} deduplicated)</span>
+            <span>· ${meta.evidence_items ?? 0} passages</span>
             <span>· ${meta.conflicts_detected ?? 0} conflicts</span>
-            <span>· <span class="mono">${formatNumber(meta.total_token_estimate ?? 0)}</span> tokens est.</span>
+            <span>· ${formatNumber(meta.total_token_estimate ?? 0)} tok</span>
             <span>· ${escapeHtml(formatDateTime(meta.retrieved_at))}</span>
           </div>
         </header>
@@ -701,16 +586,16 @@ export function createWorkspace({
 
         <section class="doc-section" aria-labelledby="heading-evidence">
           <div class="doc-section__heading">
-            <h2 id="heading-evidence" style="margin:0; font-size:inherit;">2. Ranked Evidence Passages</h2>
-            <span class="doc-section__sub">${evidenceItems.length} passages · sorted by relevance</span>
+            <h2 id="heading-evidence" style="margin:0; font-size:inherit;">Evidence</h2>
+            <span class="doc-section__sub">${evidenceItems.length} passages</span>
           </div>
           <div class="evidence-list">${evidenceRowsHtml}</div>
         </section>
 
         <section class="doc-section" aria-labelledby="heading-conflicts">
           <div class="doc-section__heading">
-            <h2 id="heading-conflicts" style="margin:0; font-size:inherit;">3. Claim Verification &amp; Conflicting Claims</h2>
-            <span class="doc-section__sub">${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} · ${claims.length} claims</span>
+            <h2 id="heading-conflicts" style="margin:0; font-size:inherit;">Conflicts</h2>
+            <span class="doc-section__sub">${conflicts.length} detected</span>
           </div>
           ${conflictsHtml}
           ${claimsDisclosureHtml}
@@ -727,15 +612,15 @@ export function createWorkspace({
         <header class="doc-header">
           <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
             <h2 class="doc-header__title">${escapeHtml(resp.original_query)}</h2>
-            <button id="btn-research-this-query" class="btn" type="button">Run Full Research on Query</button>
+            <button id="btn-research-this-query" class="btn" type="button">Run Full Research</button>
           </div>
           <div class="doc-header__meta">
-            <span class="status-pill status-pill--privacy">${ICONS.shield}<span>Sanitized: <span class="mono">${escapeHtml(resp.sanitized_query)}</span></span></span>
-            <span>${resp.total_results ?? results.length} results</span>
+            <span>Sanitized: <span class="mono">${escapeHtml(resp.sanitized_query)}</span></span>
+            <span>· ${resp.total_results ?? results.length} results</span>
             ${diagnostics
               .map(
                 (d) =>
-                  `<span>· ${escapeHtml(d.provider)}: ${d.success ? `${d.result_count} hits (${Math.round(d.latency_ms)} ms)` : escapeHtml(d.error || "failed")}</span>`
+                  `<span>· ${escapeHtml(d.provider)}: ${d.success ? `${d.result_count} (${Math.round(d.latency_ms)} ms)` : escapeHtml(d.error || "failed")}</span>`
               )
               .join("")}
           </div>
@@ -748,15 +633,15 @@ export function createWorkspace({
                   .map(
                     (r) => `
                   <div class="search-result-row">
-                    <div class="doc-section__sub">#${r.rank} · ${escapeHtml(r.domain)} · via ${escapeHtml(r.provider)}${r.published_at ? ` · ${escapeHtml(formatDateTime(r.published_at))}` : ""}</div>
+                    <div class="doc-section__sub">#${r.rank} · ${escapeHtml(r.domain)} · ${escapeHtml(r.provider)}${r.published_at ? ` · ${escapeHtml(formatDateTime(r.published_at))}` : ""}</div>
                     <a class="search-result-row__title" href="${escapeHtml(safeHttpUrl(r.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.title)}</a>
-                    <p style="margin:0; color:var(--text-secondary); max-width:68ch; line-height:1.5;">${escapeHtml(r.snippet || "No snippet returned.")}</p>
+                    <p style="margin:0; color:var(--text-secondary); max-width:68ch; line-height:1.5;">${escapeHtml(r.snippet || "")}</p>
                     <div class="doc-section__sub mono">${escapeHtml(truncateText(r.canonical_url, 96))}</div>
                   </div>
                 `
                   )
                   .join("")
-              : `<p class="empty-state__desc">No results matched this search query.</p>`
+              : `<p class="coverage-summary-text">No matching results.</p>`
           }
         </section>
       </article>
@@ -785,7 +670,7 @@ export function createWorkspace({
     } else if (state.mode === "search" && state.searchResponse) {
       resultsEl.innerHTML = renderSearchResponse(state.searchResponse);
     } else if (!state.isRunning) {
-      resultsEl.innerHTML = renderEmptyState(state);
+      resultsEl.innerHTML = renderEmptyState();
     } else {
       resultsEl.innerHTML = "";
     }

@@ -1,8 +1,8 @@
 /**
- * Leading Sidebar — Local Research History list, instant filtering, and confirmed deletion.
+ * Leading Sidebar — Local History list, filter, and deletion.
  */
 
-import { escapeHtml, formatRelativeTime, ICONS, truncateText } from "../formatters.js";
+import { escapeHtml, formatRelativeTime, truncateText } from "../formatters.js";
 
 export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDelete }) {
   const btnNew = document.getElementById("btn-new-research");
@@ -43,13 +43,6 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
     }
   });
 
-  function statusGlyph(status) {
-    const s = String(status || "").toLowerCase();
-    if (s === "completed") return { icon: ICONS.check, label: "Completed" };
-    if (s === "failed") return { icon: ICONS.conflict, label: "Failed" };
-    return { icon: ICONS.running, label: s || "Active" };
-  }
-
   function render(state) {
     const term = state.historyFilter.trim().toLowerCase();
     const filtered = term
@@ -61,30 +54,25 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
       : state.runs;
 
     if (state.runs.length === 0) {
-      listEl.innerHTML = `
-        <div class="empty-state" style="padding: 16px;">
-          <p class="empty-state__desc">No saved runs yet. Executed research queries persist locally in SQLite.</p>
-        </div>
-      `;
+      listEl.innerHTML = `<div class="sidebar-empty">No saved runs.</div>`;
       return;
     }
 
     if (filtered.length === 0) {
-      listEl.innerHTML = `
-        <div class="empty-state" style="padding: 16px;">
-          <p class="empty-state__desc">No runs match “${escapeHtml(state.historyFilter)}”.</p>
-        </div>
-      `;
+      listEl.innerHTML = `<div class="sidebar-empty">No matching runs.</div>`;
       return;
     }
 
     listEl.innerHTML = filtered
       .map((run) => {
         const selected = run.research_id === state.activeResearchId;
-        const st = statusGlyph(run.research_status);
         const conflicts =
           run.conflicts_detected > 0
-            ? `<span style="color: var(--signal-conflict); font-weight: 600;">· ${run.conflicts_detected} conflict${run.conflicts_detected === 1 ? "" : "s"}</span>`
+            ? `<span style="color: var(--tone-negative);">· ${run.conflicts_detected} conflict${run.conflicts_detected === 1 ? "" : "s"}</span>`
+            : "";
+        const failed =
+          String(run.research_status || "").toLowerCase() === "failed"
+            ? `<span style="color: var(--tone-negative);">· Failed</span>`
             : "";
 
         return `
@@ -98,19 +86,19 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
             >
               <div class="history-row__title">${escapeHtml(truncateText(run.original_query, 86))}</div>
               <div class="history-row__meta">
-                <span title="Status: ${escapeHtml(st.label)}">${st.icon}</span>
                 <span>${escapeHtml(formatRelativeTime(run.created_at))}</span>
                 <span>· ${run.retrieved_sources ?? 0} src</span>
-                <span>· ${run.evidence_items ?? 0} ev</span>
+                <span>· ${run.evidence_items ?? 0} pass</span>
                 ${conflicts}
+                ${failed}
               </div>
             </button>
             <button
               class="btn btn--quiet btn--icon history-row__delete"
               type="button"
               data-delete-run="${escapeHtml(run.research_id)}"
-              aria-label="Delete research run: ${escapeHtml(truncateText(run.original_query, 40))}"
-              title="Delete local run"
+              aria-label="Delete: ${escapeHtml(truncateText(run.original_query, 40))}"
+              title="Delete run"
             >
               <svg class="icon icon--sm" viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M3 4.5h10"></path>

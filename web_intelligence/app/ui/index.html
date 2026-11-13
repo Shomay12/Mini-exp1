@@ -5,23 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <meta name="application-name" content="WEB INTELLIGENCE ENGINE" />
-  <title>Research Workbench — Local-First Web Intelligence</title>
+  <title>Research Workbench</title>
   <link rel="stylesheet" href="/static/styles/tokens.css" />
   <link rel="stylesheet" href="/static/styles/layout.css" />
   <link rel="stylesheet" href="/static/styles/components.css" />
 </head>
 <body>
-  <a class="skip-link" href="#workspace-main">Skip to Research Workspace</a>
+  <a class="skip-link" href="#workspace-main">Skip to Workspace</a>
 
   <div id="app-shell" class="app-shell" data-compact-pane="workspace">
-    <!-- Functional Layer: Top Window Toolbar -->
     <header class="app-toolbar" role="banner">
       <div class="toolbar-group toolbar-group--leading">
         <button
           id="btn-toggle-sidebar"
           class="btn btn--quiet btn--icon"
           type="button"
-          aria-label="Toggle research history sidebar"
+          aria-label="Toggle history sidebar"
           aria-pressed="true"
           title="Toggle Sidebar (⌘\)"
         >
@@ -31,11 +30,9 @@
           </svg>
         </button>
 
-        <div class="toolbar-title-wrap">
-          <h1 id="toolbar-run-title" class="toolbar-title">New Research</h1>
-        </div>
+        <h1 id="toolbar-run-title" class="toolbar-title">New Research</h1>
 
-        <div class="segmented toolbar-hide-compact" role="tablist" aria-label="Workspace mode">
+        <div class="segmented toolbar-hide-compact" role="tablist" aria-label="Mode">
           <button
             id="mode-research"
             class="segmented__item"
@@ -44,7 +41,7 @@
             aria-selected="true"
             data-mode="research"
           >
-            Full Research
+            Research
           </button>
           <button
             id="mode-search"
@@ -54,35 +51,27 @@
             aria-selected="false"
             data-mode="search"
           >
-            Quick Search
+            Search
           </button>
         </div>
       </div>
 
-      <div class="toolbar-group toolbar-group--center">
-        <span id="toolbar-engine-status" class="status-pill" title="Execution environment status">
-          <svg class="icon icon--sm" viewBox="0 0 16 16" aria-hidden="true">
-            <circle cx="8" cy="8" r="5.5"></circle>
-            <path d="M5.5 8.2 7.2 9.9 10.7 6.3"></path>
-          </svg>
-          <span>Checking Engine…</span>
+      <div class="toolbar-group toolbar-group--trailing">
+        <span id="toolbar-engine-status" class="status-label toolbar-hide-compact" title="Backend engine status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Connecting…</span>
         </span>
 
-        <div id="toolbar-budget" class="toolbar-budget" title="Estimated evidence tokens vs configured context budget">
-          <span id="toolbar-budget-label">0 / 8,192 tok</span>
-          <div class="budget-track" aria-hidden="true">
-            <div id="toolbar-budget-fill" class="budget-track__fill"></div>
-          </div>
-        </div>
-      </div>
+        <span id="toolbar-budget-label" class="toolbar-meta toolbar-hide-compact" title="Estimated evidence tokens vs configured context budget">
+          0 / 7,168 tok
+        </span>
 
-      <div class="toolbar-group toolbar-group--trailing">
         <button
           id="btn-export-json"
           class="btn btn--quiet"
           type="button"
           disabled
-          title="Export ResearchPackage JSON (⌘E)"
+          title="Export JSON (⌘E)"
         >
           <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M10 3.5v8.5"></path>
@@ -96,9 +85,9 @@
           id="btn-toggle-inspector"
           class="btn btn--quiet btn--icon"
           type="button"
-          aria-label="Toggle evidence inspector"
+          aria-label="Toggle inspector"
           aria-pressed="true"
-          title="Toggle Evidence Inspector (⌥⌘I)"
+          title="Toggle Inspector (⌥⌘I)"
         >
           <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
             <rect x="2.5" y="3.5" width="15" height="13" rx="2"></rect>
@@ -110,8 +99,8 @@
           id="btn-open-settings"
           class="btn btn--quiet btn--icon"
           type="button"
-          aria-label="Open research configuration"
-          title="Research Configuration… (⌘,)"
+          aria-label="Configuration"
+          title="Settings… (⌘,)"
         >
           <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
             <line x1="4" y1="6" x2="16" y2="6"></line>
@@ -125,7 +114,6 @@
       </div>
     </header>
 
-    <!-- Compact Viewport Switcher (<768px) -->
     <nav class="compact-pane-bar" aria-label="Workspace panes">
       <div class="segmented segmented--full" role="tablist">
         <button class="segmented__item" type="button" role="tab" aria-selected="true" data-compact-tab="workspace">Workspace</button>
@@ -134,17 +122,15 @@
       </div>
     </nav>
 
-    <!-- 3-Pane Split Workspace -->
     <div class="split-workspace">
-      <!-- Leading Sidebar: Local Research History -->
-      <aside id="pane-sidebar" class="pane-sidebar" aria-label="Research history">
+      <aside id="pane-sidebar" class="pane-sidebar" aria-label="History">
         <div class="sidebar-header">
-          <button id="btn-new-research" class="btn" type="button" title="Start New Research (⌘N)">
+          <button id="btn-new-research" class="btn" type="button" title="New Research (⌘N)">
             <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
               <line x1="10" y1="4.5" x2="10" y2="15.5"></line>
               <line x1="4.5" y1="10" x2="15.5" y2="10"></line>
             </svg>
-            <span>New Research</span>
+            <span>New</span>
           </button>
 
           <div class="search-field">
@@ -156,8 +142,8 @@
               id="sidebar-search"
               class="search-field__input"
               type="search"
-              placeholder="Filter local runs…"
-              aria-label="Filter local research runs"
+              placeholder="Filter runs…"
+              aria-label="Filter runs"
               autocomplete="off"
             />
             <button
@@ -172,7 +158,7 @@
           </div>
         </div>
 
-        <div class="sidebar-section-label">Local History</div>
+        <div class="sidebar-section-label">History</div>
         <div id="sidebar-history-list" class="sidebar-list" role="list"></div>
       </aside>
 
@@ -180,12 +166,11 @@
         class="split-resizer"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize research history sidebar"
+        aria-label="Resize history sidebar"
         tabindex="0"
         data-resizer="sidebar"
       ></div>
 
-      <!-- Center Research Canvas -->
       <main id="workspace-main" class="pane-workspace" tabindex="-1">
         <div id="workspace-scroll" class="workspace-scroll">
           <div id="workspace-root" class="workspace-column"></div>
@@ -196,17 +181,16 @@
         class="split-resizer"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize evidence inspector"
+        aria-label="Resize inspector"
         tabindex="0"
         data-resizer="inspector"
       ></div>
 
-      <!-- Trailing Evidence & Provenance Inspector -->
-      <aside id="pane-inspector" class="pane-inspector" aria-label="Evidence inspector">
+      <aside id="pane-inspector" class="pane-inspector" aria-label="Inspector">
         <div class="inspector-head">
           <div class="inspector-head__top">
-            <h2 class="inspector-head__title">Evidence Inspector</h2>
-            <span id="inspector-summary-count" class="doc-section__sub">No run loaded</span>
+            <h2 class="inspector-head__title">Inspector</h2>
+            <span id="inspector-summary-count" class="doc-section__sub"></span>
           </div>
           <div class="segmented segmented--full" role="tablist" aria-label="Inspector sections">
             <button class="segmented__item" type="button" role="tab" aria-selected="true" data-inspector-tab="sources">Sources</button>
@@ -220,32 +204,27 @@
     </div>
   </div>
 
-  <!-- Modal Research Configuration Sheet (⌘,) -->
   <dialog id="settings-dialog" class="app-sheet" aria-labelledby="settings-dialog-title">
     <div id="settings-sheet-root" class="sheet-shell"></div>
   </dialog>
 
-  <!-- Destructive Confirmation Sheet (Delete Research Run) -->
   <dialog id="confirm-delete-dialog" class="app-sheet app-sheet--narrow" aria-labelledby="confirm-delete-title">
     <div class="sheet-shell">
       <div class="sheet-header">
-        <div class="sheet-header__row">
-          <h2 id="confirm-delete-title" class="sheet-title">Delete Local Research Run?</h2>
-        </div>
+        <h2 id="confirm-delete-title" class="sheet-title">Delete Research Run?</h2>
       </div>
       <div class="sheet-body">
-        <p id="confirm-delete-message" class="empty-state__desc">
-          This permanently deletes the persisted research run, retrieved sources, extracted passages, and claim conflicts from local SQLite storage.
+        <p id="confirm-delete-message" class="coverage-summary-text">
+          This removes the persisted run, sources, passages, and conflicts from local storage.
         </p>
       </div>
       <div class="sheet-footer">
         <button id="btn-cancel-delete" class="btn" type="button">Cancel</button>
-        <button id="btn-confirm-delete" class="btn btn--destructive" type="button">Delete Run</button>
+        <button id="btn-confirm-delete" class="btn btn--destructive" type="button">Delete</button>
       </div>
     </div>
   </dialog>
 
-  <!-- Live Screen Reader Announcements -->
   <div id="live-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
   <script type="module" src="/static/app.js"></script>

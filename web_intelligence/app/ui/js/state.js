@@ -14,6 +14,7 @@ const DEFAULT_PREFS = {
   maxResultsPerQuery: 6,
   maxFetchUrls: 8,
   chunkTargetTokens: 180,
+  useLocalLlm: true,
   selectedProviders: [], // empty = backend default router
 };
 
@@ -77,6 +78,19 @@ export function createStore() {
     // UI Modal State
     settingsTab: "providers", // "providers" | "privacy" | "budget" | "model"
     pendingDeleteRun: null,
+
+    // Universal Local LLM Connection State
+    llmPresets: [],
+    llmConnections: [],
+    llmDiscoveredModels: {},
+    llmSelectedConnectionId: null,
+    llmBusy: false,
+    llmStatusMessage: null,
+    llmError: null,
+    llmPromptStreamText: "",
+    llmPromptRunning: false,
+    llmPromptError: null,
+    llmPromptMeta: null,
   };
 
   const listeners = new Set();

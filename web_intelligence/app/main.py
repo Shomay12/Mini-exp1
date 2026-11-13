@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from web_intelligence.app.api.routes.health import router as health_router
+from web_intelligence.app.api.routes.llm import router as llm_router
 from web_intelligence.app.api.routes.research import router as research_router
 from web_intelligence.app.api.routes.search import router as search_router
 from web_intelligence.app.api.routes.sources import router as sources_router
@@ -72,6 +73,7 @@ def create_app(
         )
 
     application.include_router(health_router)
+    application.include_router(llm_router)
     application.include_router(search_router)
     application.include_router(research_router)
     application.include_router(sources_router)
