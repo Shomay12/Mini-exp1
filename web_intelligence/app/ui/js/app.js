@@ -5,6 +5,12 @@
 
 import { ApiError, api, pollResearchUntilComplete } from "./api.js";
 import { createInspector } from "./components/inspector.js";
+import {
+  createInitialLlmDraft,
+  handleLlmActionClick,
+  renderModelConnectionsPane,
+  syncLlmDraftField,
+} from "./components/llm_pane.js";
 import { createSettingsSheet } from "./components/settings_sheet.js";
 import { createSidebar } from "./components/sidebar.js";
 import { createToolbar } from "./components/toolbar.js";
@@ -200,6 +206,7 @@ async function handleSubmitQuery(rawQuery) {
         max_fetch_urls: Math.min(25, Math.max(1, Number(prefs.maxFetchUrls) || 8)),
         providers,
         chunk_target_tokens: Math.min(1000, Math.max(40, Number(prefs.chunkTargetTokens) || 180)),
+        use_local_llm: Boolean(prefs.useLocalLlm && store.getState().health?.active_llm),
       },
       signal
     );
@@ -459,6 +466,137 @@ document.addEventListener("keydown", (event) => {
 
 // Initialize UI Components
 const settingsSheet = createSettingsSheet({ store });
+const llmDraft = createInitialLlmDraft();
+let lastModelPaneSig = "";
+
+const settingsRootEl = document.getElementById("settings-sheet-root");
+if (settingsRootEl) {
+  settingsRootEl.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-llm-action]");
+    if (btn && store.getState().settingsTab === "model") {
+      handleLlmActionClick(btn, { store, draft: llmDraft, rootEl: settingsRootEl });
+    }
+  });
+  settingsRootEl.addEventListener("input", (event) => {
+    if (store.getState().settingsTab === "model") {
+      const needsRender = syncLlmDraftField(event.target, { store, draft: llmDraft });
+      if (needsRender) {
+        lastModelPaneSig = "";
+        syncModelSettingsPane(store.getState());
+      }
+    }
+  });
+  settingsRootEl.addEventListener("change", (event) => {
+    if (store.getState().settingsTab === "model") {
+      const needsRender = syncLlmDraftField(event.target, { store, draft: llmDraft });
+      if (needsRender) {
+        lastModelPaneSig = "";
+        syncModelSettingsPane(store.getState());
+      }
+    }
+  });
+}
+
+function syncModelSettingsPane(state) {
+  if (!settingsDialogEl?.open || state.settingsTab !== "model") {
+    lastModelPaneSig = "";
+    return;
+  }
+  const bodyEl = settingsRootEl?.querySelector(".sheet-body");
+  if (!bodyEl) return;
+
+  const sig = JSON.stringify({
+    conns: state.llmConnections,
+    discovered: state.llmDiscoveredModels,
+    selectedId: state.llmSelectedConnectionId,
+    busy: state.llmBusy,
+    status: state.llmStatusMessage,
+    err: state.llmError,
+    promptRunning: state.llmPromptRunning,
+    promptErr: state.llmPromptError,
+    hasStreamText: Boolean(state.llmPromptStreamText),
+    preset: llmDraft.preset,
+  });
+
+  if (sig !== lastModelPaneSig || !bodyEl.dataset.llmRendered) {
+    lastModelPaneSig = sig;
+    bodyEl.innerHTML = renderModelConnectionsPane(state, llmDraft);
+    bodyEl.dataset.llmRendered = "1";
+  } else {
+    const outEl = bodyEl.querySelector("#llm-test-prompt-output");
+    if (outEl && state.llmPromptStreamText) {
+      outEl.textContent = state.llmPromptStreamText;
+    }
+  }
+}
+
+function syncToolbarLlmDisplay(state) {
+  const engineEl = document.getElementById("toolbar-engine-status");
+  const active = state.health?.active_llm;
+  if (engineEl) {
+    if (active) {
+      const dotClass = active.status === "connected" ? "status-dot--ok" : "status-dot--pending";
+      const label = active.model ? `${active.name}: ${active.model}` : active.name;
+      engineEl.innerHTML = `<span class="status-dot ${dotClass}" aria-hidden="true"></span><span>LLM · ${escapeToolbarText(label)}</span>`;
+      engineEl.title = `Active local model (${active.provider}, ${active.status}) — click to configure`;
+      engineEl.style.cursor = "pointer";
+      if (!engineEl.dataset.llmBound) {
+        engineEl.dataset.llmBound = "1";
+        engineEl.addEventListener("click", () => {
+          store.setState({ settingsTab: "model" });
+          settingsSheet.open();
+          lastModelPaneSig = "";
+          syncModelSettingsPane(store.getState());
+        });
+      }
+    } else if (state.health) {
+      engineEl.title = "Zero-LLM mode (Stage 4 active) — click to connect a local LLM";
+      engineEl.style.cursor = "pointer";
+      if (!engineEl.dataset.llmBound) {
+        engineEl.dataset.llmBound = "1";
+        engineEl.addEventListener("click", () => {
+          store.setState({ settingsTab: "model" });
+          settingsSheet.open();
+          lastModelPaneSig = "";
+          syncModelSettingsPane(store.getState());
+        });
+      }
+    }
+  }
+
+  const budgetLabel = document.getElementById("toolbar-budget-label");
+  const budgetFill = document.getElementById("toolbar-budget-fill");
+  const alloc = state.researchPackage?.context_allocation;
+  if (budgetLabel && budgetFill && (alloc || active)) {
+    const evTokens = (state.researchPackage?.evidence || []).reduce(
+      (sum, item) => sum + (Number(item.token_estimate) || 0),
+      0
+    );
+    const used = alloc ? alloc.allocated_tokens : evTokens;
+    const cap = alloc
+      ? Math.max(1, alloc.available_evidence_tokens)
+      : Math.max(256, (active.max_context_tokens || 8192) - (active.recommended_output_tokens || 1024));
+    const pct = Math.min(100, Math.round((used / cap) * 100));
+    budgetLabel.textContent = `${used.toLocaleString()} / ${cap.toLocaleString()} tok`;
+    budgetFill.style.width = `${pct}%`;
+  }
+}
+
+function escapeToolbarText(str) {
+  return String(str || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+window.addEventListener("wi:open-settings", (event) => {
+  const tab = event.detail?.tab;
+  if (tab) store.setState({ settingsTab: tab });
+  settingsSheet.open();
+  lastModelPaneSig = "";
+  syncModelSettingsPane(store.getState());
+});
 
 const toolbar = createToolbar({
   store,
@@ -525,11 +663,13 @@ const inspector = createInspector({
 
 function renderAll(state) {
   toolbar.render(state);
+  syncToolbarLlmDisplay(state);
   sidebar.render(state);
   workspace.render(state);
   inspector.render(state);
   if (settingsDialogEl.open) {
     settingsSheet.render(state);
+    syncModelSettingsPane(state);
   }
 }
 
@@ -538,10 +678,12 @@ initSplitResizers();
 renderAll(store.getState());
 
 async function bootstrap() {
-  const [healthRes, configRes, runsRes] = await Promise.allSettled([
+  const [healthRes, configRes, runsRes, presetsRes, llmConnsRes] = await Promise.allSettled([
     api.getHealth(),
     api.getConfig(),
     api.listResearchRuns(),
+    api.listLlmPresets(),
+    api.listLlmConnections(),
   ]);
 
   const patch = {};
@@ -563,6 +705,14 @@ async function bootstrap() {
     patch.runs = Array.isArray(runsRes.value) ? runsRes.value : [];
   } else {
     errors.push(runsRes.reason?.message || "Run history unavailable");
+  }
+
+  if (presetsRes.status === "fulfilled" && Array.isArray(presetsRes.value)) {
+    patch.llmPresets = presetsRes.value;
+  }
+
+  if (llmConnsRes.status === "fulfilled" && Array.isArray(llmConnsRes.value)) {
+    patch.llmConnections = llmConnsRes.value;
   }
 
   patch.backendError = errors.length && !patch.health ? errors[0] : null;

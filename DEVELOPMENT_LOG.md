@@ -28,3 +28,14 @@
 ### Next Steps (Phase 2)
 - Implement `AdaptiveContextBudgetManager` for token-constrained local SLMs.
 - Implement `LocalModelAdapter` backends (e.g., `llama.cpp` / Ollama / MLX local adapters) and LLM-backed `QueryPlanner`, `ClaimComparator`, `AnswerGenerator`, and `EvidenceVerifier`.
+
+---
+
+## 2026-11-13 — Universal Local LLM Connection System Extension
+
+### Architecture & Implementation
+- **Schemas & Secret Protection**: Added `web_intelligence/app/schemas/llm.py` (`ModelCapabilities`, `CapabilityProvenance` distinguishing `verified`/`configured`/`unknown`, `DiscoveredModel`, `LLMConnectionConfig`/`Public`/`Summary`, chat/streaming DTOs) and updated `core/logging.py` (`register_secret`, `register_secrets`, `redact_text`) and `future_interfaces.py`.
+- **Separate Connection Security Boundary**: Created `web_intelligence/app/llm/security.py` enforcing syntax validation, explicit user approval, loopback-by-default rules with explicit `allow_remote_endpoint` opt-in, unconditional cloud metadata/link-local/unspecified/multicast/redirect blocking, DNS rebinding validation, safe `api_endpoint` relative-path checking, and secret-safe error reporting.
+- **Adapters, Registry & Persistence**: Extended SQLite (`llm_connections` table in `storage/database.py` and CRUD in `storage/repositories.py`) and built `web_intelligence/app/llm/` (`base.py`, `openai_compatible.py`, `ollama.py`, `registry.py`, `manager.py`) supporting connection testing, `/v1/models` and `/api/tags`+`/api/show` discovery, manual model fallback, SSE & NDJSON streaming, tool calling metadata, and JSON extraction.
+- **Research Workflow & API/UI**: Implemented `AdaptiveContextBudgetManager` (`research/context_budget.py`), `LocalQueryPlanner`, `LocalAnswerGenerator`, and `LocalEvidenceVerifier` (`research/llm_hooks.py`), integrated into `ResearchOrchestrator`, `/api/v1/health`, `/api/v1/llm/*` routes (`api/routes/llm.py`), and the Workbench UI (`ui/js/components/llm_pane.js`, `api.js`, `state.js`, `workspace.js`, `app.js`, `styles/components.css`).
+- **Verification**: Verified 91/91 automated pytest tests passing with 0 warnings across security, SQLite storage, adapter mock transports, streaming, adaptive context budgeting, verification, and end-to-end FastAPI routes, alongside `node --check` on UI modules and CLI demo run (`demo_research.py`).

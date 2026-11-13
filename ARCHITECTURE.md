@@ -141,3 +141,36 @@ Four ordered tiers preserve duplicate traceability on `SourceRecord` while keepi
   - `partial`: only 1 independent domain retrieved OR active conflict detected.
   - `missing`: no retrieved passage meets relevance/overlap criteria.
 - Surfaces `well_corroborated_claims`, `single_source_claims`, `conflicted_areas`, and explicit `unanswered_questions` so gaps are always visible.
+
+---
+
+## Universal Local LLM Connection System
+
+Extends the core Web Intelligence Layer to connect any user-hosted HTTP inference server without bundling or requiring a cloud LLM or specific runtime binary.
+
+### 1. Provider Abstraction (`web_intelligence/app/llm/`)
+- `UniversalLocalModelAdapter` (extends `LocalModelAdapter`): unified interface for connection tests, model discovery, capability inspection, non-streaming/streaming chat, structured JSON generation, and single-prompt execution.
+- `OpenAICompatibleAdapter`: supports vLLM, LM Studio, llama.cpp, LocalAI, and custom `/v1` OpenAI-compatible servers (`GET /v1/models`, `POST /v1/chat/completions`, SSE streaming, tool calling, JSON fallback) without blindly assuming all OpenAI capabilities are supported.
+- `OllamaAdapter`: native REST adapter (`/api/tags`, `/api/show`, `/api/chat`, NDJSON streaming, `format="json"`), extracting verified architectural context limits and capability flags directly from `/api/show` and Modelfile `num_ctx` parameters.
+- `AdapterRegistry`: extensible registry mapping provider identifiers to adapter classes alongside server presets (`PROVIDER_PRESETS`).
+- `LLMConnectionManager`: manages persistent endpoint CRUD, active connection switching/disconnection, secret registration with `SecretRedactingFilter`, testing, discovery, model selection, and verification prompts.
+
+### 2. Capability Provenance (`CapabilitySource`)
+- `ModelCapabilities` pairs each capability (`max_context_tokens`, `recommended_output_tokens`, `supports_streaming`, `supports_tool_calling`, `supports_json_mode`, `supports_vision`) with `CapabilityProvenance`:
+  - `verified`: directly reported by server metadata (e.g., Ollama `/api/show` or OpenAI `max_model_len`/`supported_parameters`).
+  - `configured`: user-supplied assumptions (`context_length`, `max_output_tokens`, `streaming`).
+  - `unknown`: not exposed by the endpoint metadata.
+
+### 3. Local Inference Trust Boundary (`web_intelligence/app/llm/security.py`)
+- Separate from the external web search boundary (`core/security.py`):
+  - Loopback hosts (`localhost`, `127.0.0.0/8`, `::1`) are permitted when explicitly approved by the user (`approved_by_user=True`).
+  - Non-loopback LAN or remote hosts require explicit `allow_remote_endpoint=True` and `approved_by_user=True`.
+  - Cloud metadata (`169.254.169.254`, `metadata.google.internal`, `metadata.goog`), link-local (`169.254.0.0/16`, `fe80::/10`), unspecified (`0.0.0.0/8`, `::/128`), multicast, embedded URL credentials, non-HTTP(S) schemes, non-HTTP infrastructure daemon ports, `api_endpoint` host escapes, and HTTP redirects (`follow_redirects=False`) are unconditionally blocked, with pre-dial DNS rebinding verification (`validate_llm_endpoint_async`).
+  - Raw API keys are stored only in local SQLite (`llm_connections`), injected via `SecretStr`, registered into log redaction, masked via `redact_llm_error`, and excluded from all frontend API DTOs (`LLMConnectionPublic`).
+
+### 4. Research Engine Integration (`context_budget.py` & `llm_hooks.py`)
+- Optional workflow when `use_local_llm=True` (or `llm_connection_id` is supplied) while leaving zero-LLM Phase 1 mode intact by default:
+  1. `LocalQueryPlanner` decomposes queries into JSON subqueries and falls back automatically to `DeterministicQueryPlanner` on inference errors.
+  2. Stages 3–4 retrieve, normalize, deduplicate, chunk, rank, extract claims, detect conflicts, and analyze coverage independently.
+  3. `AdaptiveContextBudgetManager` dynamically packs evidence within `max_context_tokens - reserved_system_tokens - reserved_output_tokens`, prioritizing detected source conflicts and domain diversity.
+  4. `LocalAnswerGenerator` produces grounded synthesis citing `[E#]` passages; `LocalEvidenceVerifier` verifies citations against allocated evidence, flags ungrounded numeric claims, and checks whether conflicts were acknowledged.

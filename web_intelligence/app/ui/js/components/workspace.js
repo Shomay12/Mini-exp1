@@ -159,6 +159,21 @@ export function createWorkspace({
     }
   });
 
+  composerEl.addEventListener("change", (event) => {
+    const llmToggle = event.target.closest("#inline-use-llm-toggle");
+    if (llmToggle) {
+      store.updatePrefs({ useLocalLlm: Boolean(llmToggle.checked) });
+    }
+  });
+
+  composerEl.addEventListener("click", (event) => {
+    const openLlmBtn = event.target.closest("#btn-open-llm-settings");
+    if (openLlmBtn) {
+      store.setState({ settingsTab: "model" });
+      window.dispatchEvent(new CustomEvent("wi:open-settings", { detail: { tab: "model" } }));
+    }
+  });
+
   function clampInt(raw, min, max, fallback) {
     const n = Number.parseInt(raw, 10);
     if (!Number.isFinite(n)) return fallback;
@@ -181,10 +196,12 @@ export function createWorkspace({
 
   function renderComposer(state) {
     const providers = (state.health?.providers || []).filter((p) => p.enabled);
+    const activeLlm = state.health?.active_llm || null;
     const sig = JSON.stringify({
       mode: state.mode,
       isRunning: state.isRunning,
       providers: providers.map((p) => p.name),
+      activeLlm: activeLlm ? { id: activeLlm.id, model: activeLlm.model, status: activeLlm.status } : null,
       prefs: state.prefs,
     });
 
@@ -255,6 +272,17 @@ export function createWorkspace({
                 </div>
               </div>
             </div>
+
+            ${
+              !isSearch
+                ? activeLlm
+                  ? `<label class="field-inline llm-composer-toggle" title="Synthesize answer with connected local model (${escapeHtml(activeLlm.name)})">
+                      <input id="inline-use-llm-toggle" type="checkbox" ${state.prefs.useLocalLlm ? "checked" : ""} ${state.isRunning ? "disabled" : ""} />
+                      <span>Use ${escapeHtml(activeLlm.model || activeLlm.name)}</span>
+                    </label>`
+                  : `<button id="btn-open-llm-settings" class="btn btn--quiet" type="button" ${state.isRunning ? "disabled" : ""}>Connect Local Model</button>`
+                : ""
+            }
           </div>
 
           <div class="composer__actions">
@@ -371,6 +399,7 @@ export function createWorkspace({
       searching: "Searching providers…",
       retrieving: "Fetching webpages…",
       processing: "Extracting passages & checking claims…",
+      synthesizing: "Synthesizing grounded answer with local LLM…",
       completed: "Done",
     };
     return copy[stage] || "Working…";
@@ -385,15 +414,92 @@ export function createWorkspace({
     `;
   }
 
+  function renderSynthesisSection(pkg) {
+    const syn = pkg.synthesis;
+    if (!syn) return "";
+
+    const ver = syn.verification || {};
+    const alloc = syn.context_budget || pkg.context_allocation || {};
+    const evMap = new Map((pkg.evidence || []).map((ev) => [ev.evidence_id, ev]));
+    const selectedEvIds = alloc.selected_evidence_ids || [];
+
+    // Escape prose first, then link [E#] references safely to cited evidence sources.
+    const linkedProse = escapeHtml(syn.answer || "").replace(
+      /\[(E(\d+))\]/g,
+      (_full, tag, numStr) => {
+        const idx = Number.parseInt(numStr, 10) - 1;
+        const evId = idx >= 0 && idx < selectedEvIds.length ? selectedEvIds[idx] : null;
+        const evObj = evId ? evMap.get(evId) : null;
+        if (!evObj) {
+          return `<span class="mono">[${escapeHtml(tag)}]</span>`;
+        }
+        return `<button class="citation-link" type="button" data-cite-source="${escapeHtml(evObj.source_id)}" data-cite-evidence="${escapeHtml(evObj.evidence_id)}" title="${escapeHtml(evObj.source_domain)}">[${escapeHtml(tag)}]</button>`;
+      }
+    );
+
+    const issues = [
+      ...(syn.warning ? [syn.warning] : []),
+      ...(ver.invalid_citations || []).map((c) => `Unknown citation: ${c}`),
+      ...(ver.unsupported_claims || []),
+      ...(ver.unacknowledged_conflicts || []).map((id) => `Conflict ${id} not explicitly acknowledged`),
+    ];
+
+    return `
+      <section class="doc-section synthesis-card" aria-labelledby="heading-synthesis">
+        <div class="doc-section__heading">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <h2 id="heading-synthesis" style="margin:0; font-size:inherit;">Local Model Synthesis</h2>
+            <span class="doc-section__sub mono">${escapeHtml(syn.model_name)} · ${escapeHtml(syn.provider)} · ${formatNumber(syn.latency_ms || 0)} ms</span>
+          </div>
+          ${renderStatusPill(ver.verified ? "sufficient" : "partial", ver.verified ? "Verified Citations" : "Review Notes")}
+        </div>
+
+        ${
+          syn.answer
+            ? `<div class="synthesis-card__answer">${linkedProse.replaceAll("\n", "<br />")}</div>`
+            : `<p class="coverage-summary-text">No synthesized response generated.</p>`
+        }
+
+        <div class="synthesis-card__meta">
+          <span>Context budget: <strong class="mono">${formatNumber(alloc.allocated_tokens || 0)} / ${formatNumber(alloc.available_evidence_tokens || 0)}</strong> tok</span>
+          <span>· ${alloc.covered_domains?.length || 0} domain(s) packed</span>
+          <span>· ${alloc.included_conflict_count || 0} conflict passage(s)</span>
+          ${alloc.dropped_evidence_ids?.length ? `<span>· ${alloc.dropped_evidence_ids.length} lower-priority dropped</span>` : ""}
+        </div>
+
+        ${
+          issues.length
+            ? `<div class="synthesis-card__warnings">
+                ${issues.map((w) => `<div>• ${escapeHtml(w)}</div>`).join("")}
+              </div>`
+            : (ver.notes || []).length
+              ? `<div class="doc-section__sub">${escapeHtml(ver.notes.join(" "))}</div>`
+              : ""
+        }
+      </section>
+    `;
+  }
+
   function renderResearchPackage(pkg, state) {
     const meta = pkg.metadata || {};
     const cov = pkg.coverage || {};
-    const totalBudget = Math.max(512, Number(state.prefs.contextBudgetTokens) || 8192);
-    const reserved = Math.min(totalBudget - 256, Math.max(0, Number(state.prefs.reservedOutputTokens) || 1024));
-    const effectiveBudget = Math.max(256, totalBudget - reserved);
+    const activeLlm = state.health?.active_llm || null;
+    const totalBudget = Math.max(
+      512,
+      Number(activeLlm?.max_context_tokens || state.prefs.contextBudgetTokens) || 8192
+    );
+    const reserved = Math.min(
+      totalBudget - 256,
+      Math.max(0, Number(activeLlm?.recommended_output_tokens || state.prefs.reservedOutputTokens) || 1024)
+    );
+    const effectiveBudget = pkg.context_allocation?.available_evidence_tokens
+      ? Math.max(128, Number(pkg.context_allocation.available_evidence_tokens))
+      : Math.max(256, totalBudget - reserved);
 
     const sourceIndexMap = new Map();
     (pkg.sources || []).forEach((s, idx) => sourceIndexMap.set(s.source_id, idx + 1));
+
+    const synthesisHtml = renderSynthesisSection(pkg);
 
     const subtopics = cov.subtopic_details || [];
     const coverageHtml = `
@@ -582,6 +688,8 @@ export function createWorkspace({
           </div>
         </header>
 
+        ${synthesisHtml}
+
         ${coverageHtml}
 
         <section class="doc-section" aria-labelledby="heading-evidence">
@@ -654,6 +762,8 @@ export function createWorkspace({
       pkgId: state.researchPackage?.research_id || null,
       pkgStatus: state.researchPackage?.research_status || null,
       pkgEvLen: state.researchPackage?.evidence?.length || 0,
+      hasSynthesis: Boolean(state.researchPackage?.synthesis),
+      activeLlmId: state.health?.active_llm?.id || null,
       searchQuery: state.searchResponse?.sanitized_query || null,
       searchLen: state.searchResponse?.results?.length || 0,
       budget: state.prefs.contextBudgetTokens,

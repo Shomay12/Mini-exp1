@@ -14,6 +14,7 @@
   - **Source provenance & corroboration**: separate structural classification (`primary`/`secondary`/`reference`/`unknown`), publication metadata, independent domain count, and mirror clustering.
   - **Claim & conflict detection**: deterministic extraction and cross-source comparison of dates, numerical quantities + normalized units, and polarity, preserving conflicting statements side-by-side without picking a winner, plus replaceable `ClaimComparator` interface.
   - **Research coverage evaluation**: classifies decomposed query subtopics into `covered`, `partial`, and `missing`, surfacing single-source claims, conflicts, and unanswered questions.
+- **Universal Local LLM Connections** *(optional, no cloud LLM required)*: Connect user-hosted **Ollama**, **LM Studio**, **llama.cpp**, **vLLM**, **LocalAI**, or any OpenAI-compatible HTTP endpoint via the UI (`Local Model` tab) or `/api/v1/llm/*` API, with capability verification (`verified` vs `configured` vs `unknown`), streaming verification prompts, `AdaptiveContextBudgetManager`, `LocalQueryPlanner`, grounded `LocalAnswerGenerator`, and citation checking (`LocalEvidenceVerifier`). Zero-LLM mode stays fully functional when disconnected.
 - **API, Local SQLite Persistence & Research UI**: FastAPI `/api/v1/*` endpoints and a minimal, information-dense browser workbench.
 
 ## Installation & Setup
@@ -43,7 +44,7 @@ Never commit `.env` or hardcode credentials.
 ## Running Tests & Demo
 
 ```bash
-# Run full automated unit & integration test suite (63 tests)
+# Run full automated unit & integration test suite (91 tests)
 .venv/bin/pytest -v
 
 # Run end-to-end CLI research demonstration using MockSearchProvider
@@ -69,7 +70,13 @@ Never commit `.env` or hardcode credentials.
 | `GET` | `/api/v1/research/{research_id}` | Retrieve persisted `ResearchPackage` and status |
 | `DELETE` | `/api/v1/research/{research_id}` | Delete local research run and all cascaded artifacts |
 | `GET` | `/api/v1/sources/{source_id}` | Inspect full `SourceRecord`, provenance, duplicate links, and extracted text |
-| `GET` | `/api/v1/health` | Service health, SQLite readiness, and search provider availability |
+| `GET` | `/api/v1/health` | Service health, SQLite readiness, search providers, and active local LLM summary |
 | `GET` | `/api/v1/config` | Safe non-secret configuration and privacy policy snapshot |
+| `GET` | `/api/v1/llm/presets` | List built-in local/self-hosted LLM server presets |
+| `GET`/`POST` | `/api/v1/llm/connections` | List saved connections (keys redacted) or save a new LLM endpoint |
+| `POST` | `/api/v1/llm/connections/{id}/test` | Probe endpoint health, discover models, and inspect capabilities |
+| `GET`/`POST` | `/api/v1/llm/connections/{id}/models` / `model` | Discover available models or apply a manual model identifier |
+| `POST` | `/api/v1/llm/connections/{id}/activate` / `/api/v1/llm/disconnect` | Attach an active local model or revert to Zero-LLM mode |
+| `POST` | `/api/v1/llm/connections/{id}/prompt` | Run non-streaming JSON or live SSE streaming verification prompt |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for component design, data-flow diagram, SQLite schema, privacy boundaries, and Stage 4 methodology details, and [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md) for implementation milestones and decisions.
