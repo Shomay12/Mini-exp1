@@ -12,6 +12,7 @@ import {
   safeHttpUrl,
   truncateText,
 } from "../formatters.js";
+import { renderGenerationWorkspaceSection } from "./generation_workspace.js";
 
 const PIPELINE_STAGES = ["planning", "searching", "retrieving", "processing", "completed"];
 
@@ -21,6 +22,9 @@ export function createWorkspace({
   onCancelRun,
   onInspectSource,
   onSwitchToResearchWithQuery,
+  onStartGeneration,
+  onStopGeneration,
+  onOpenGenInspector,
 }) {
   const root = document.getElementById("workspace-root");
   root.innerHTML = `
@@ -156,6 +160,71 @@ export function createWorkspace({
     if (promoteSearchBtn) {
       const q = store.getState().searchResponse?.original_query || store.getState().queryDraft;
       if (q) onSwitchToResearchWithQuery(q);
+      return;
+    }
+
+    if (event.target.closest("#btn-start-generation")) {
+      store.setState({ generationOptionsOpen: false });
+      if (onStartGeneration) onStartGeneration();
+      return;
+    }
+
+    if (event.target.closest("#btn-stop-generation")) {
+      if (onStopGeneration) onStopGeneration();
+      return;
+    }
+
+    if (event.target.closest("#btn-gen-connect-llm")) {
+      store.setState({ settingsTab: "model" });
+      window.dispatchEvent(new CustomEvent("wi:open-settings", { detail: { tab: "model" } }));
+      return;
+    }
+
+    if (event.target.closest("#btn-gen-options")) {
+      const nextOpen = !store.getState().generationOptionsOpen;
+      store.setState({ generationOptionsOpen: nextOpen });
+      return;
+    }
+
+    if (event.target.closest("#btn-toggle-gen-sources")) {
+      store.setState({
+        generationExpandedSources: !store.getState().generationExpandedSources,
+      });
+      return;
+    }
+
+    if (event.target.closest("#btn-open-gen-inspector")) {
+      if (onOpenGenInspector) onOpenGenInspector();
+      return;
+    }
+  });
+
+  resultsEl.addEventListener("change", (event) => {
+    const el = event.target;
+    if (el.id === "gen-model-select") {
+      store.updatePrefs({ genSelectedRegistryEntryId: el.value || "" });
+    } else if (el.id === "gen-template-select") {
+      store.updatePrefs({ genTemplate: el.value });
+    } else if (el.id === "gen-format-select") {
+      store.updatePrefs({ genFormat: el.value });
+    } else if (el.id === "gen-length-select") {
+      store.updatePrefs({ genLength: el.value });
+    } else if (el.id === "gen-mode-select") {
+      store.updatePrefs({ genMode: el.value });
+    } else if (el.id === "gen-temperature-input") {
+      const parsed = Number.parseFloat(el.value);
+      const clean = Number.isFinite(parsed) ? Math.min(2, Math.max(0, parsed)) : 0.2;
+      store.updatePrefs({ genTemperature: Number(clean.toFixed(2)) });
+    } else if (el.id === "gen-max-tokens-input") {
+      const raw = el.value.trim();
+      if (!raw) {
+        store.updatePrefs({ genMaxOutputTokens: "" });
+      } else {
+        const parsed = clampInt(raw, 16, 65536, 1024);
+        store.updatePrefs({ genMaxOutputTokens: parsed });
+      }
+    } else if (el.id === "gen-stream-toggle") {
+      store.updatePrefs({ genStream: Boolean(el.checked) });
     }
   });
 
@@ -499,7 +568,12 @@ export function createWorkspace({
     const sourceIndexMap = new Map();
     (pkg.sources || []).forEach((s, idx) => sourceIndexMap.set(s.source_id, idx + 1));
 
-    const synthesisHtml = renderSynthesisSection(pkg);
+    const generationHtml = renderGenerationWorkspaceSection(state, pkg);
+    const hasStage6Run = Boolean(
+      state.generationRunning ||
+        (state.generationResult && state.generationResult.research_id === pkg.research_id)
+    );
+    const synthesisHtml = hasStage6Run ? "" : renderSynthesisSection(pkg);
 
     const subtopics = cov.subtopic_details || [];
     const coverageHtml = `
@@ -688,6 +762,8 @@ export function createWorkspace({
           </div>
         </header>
 
+        ${generationHtml}
+
         ${synthesisHtml}
 
         ${coverageHtml}
@@ -764,10 +840,22 @@ export function createWorkspace({
       pkgEvLen: state.researchPackage?.evidence?.length || 0,
       hasSynthesis: Boolean(state.researchPackage?.synthesis),
       activeLlmId: state.health?.active_llm?.id || null,
+      modelRegSig: (state.modelRegistry || []).map((m) => `${m.entry_id}:${m.is_active}:${m.connection_status}`).join(","),
       searchQuery: state.searchResponse?.sanitized_query || null,
       searchLen: state.searchResponse?.results?.length || 0,
       budget: state.prefs.contextBudgetTokens,
       reserved: state.prefs.reservedOutputTokens,
+      genPrefs: `${state.prefs.genSelectedRegistryEntryId}:${state.prefs.genTemplate}:${state.prefs.genFormat}:${state.prefs.genLength}:${state.prefs.genMode}:${state.prefs.genTemperature}:${state.prefs.genMaxOutputTokens}:${state.prefs.genStream}`,
+      genRunning: state.generationRunning,
+      genActiveId: state.generationActiveId,
+      genResultId: state.generationResult?.generation_id || null,
+      genResultStatus: state.generationResult?.status || null,
+      genStreamLen: state.generationStreamContent?.length || 0,
+      genSecOrder: state.generationStreamCurrentSection?.order || 0,
+      genCitLen: state.generationStreamCitations?.length || 0,
+      genSourcesOpen: state.generationExpandedSources,
+      genOptOpen: state.generationOptionsOpen,
+      genErr: state.generationError || null,
       isRunning: state.isRunning,
     });
     if (sig === lastResultsSig && resultsEl.children.length > 0) {

@@ -14,6 +14,8 @@ import {
   safeHttpUrl,
   truncateText,
 } from "../formatters.js";
+import { renderContextInspectorTab } from "./context_inspector.js";
+import { renderGenerationInspectorTab } from "./generation_inspector.js";
 
 const PASSAGE_FILTERS = [
   { id: "all", label: "All" },
@@ -22,7 +24,22 @@ const PASSAGE_FILTERS = [
   { id: "contested", label: "Contested" },
 ];
 
-export function createInspector({ store, onSelectSource, onFilterPassages, onJumpToSource }) {
+export function createInspector({
+  store,
+  onSelectSource,
+  onFilterPassages,
+  onJumpToSource,
+  onOpenContextTab,
+  onOpenGenerationTab,
+  onRefreshModelRegistry,
+  onSelectGenerationRun,
+  onApplyContextBudget,
+  onPreviewContext,
+  onCompressContext,
+  onAddWorkspaceNote,
+  onToggleWorkspaceNote,
+  onDeleteWorkspaceNote,
+}) {
   const paneEl = document.getElementById("pane-inspector");
   const countEl = document.getElementById("inspector-summary-count");
   const bodyEl = document.getElementById("inspector-body");
@@ -34,7 +51,13 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
 
   for (const btn of tabButtons) {
     btn.addEventListener("click", () => {
-      store.setState({ inspectorTab: btn.dataset.inspectorTab });
+      const nextTab = btn.dataset.inspectorTab;
+      store.setState({ inspectorTab: nextTab });
+      if (nextTab === "context" && onOpenContextTab) {
+        onOpenContextTab();
+      } else if (nextTab === "generation" && onOpenGenerationTab) {
+        onOpenGenerationTab();
+      }
     });
   }
 
@@ -84,6 +107,95 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
       headingsBtn.setAttribute("aria-expanded", String(headingsExpanded));
       const target = bodyEl.querySelector("#inspector-headings-body");
       if (target) target.hidden = !headingsExpanded;
+      return;
+    }
+
+    const ctxActionBtn = event.target.closest("[data-ctx-action]");
+    if (ctxActionBtn) {
+      const action = ctxActionBtn.dataset.ctxAction;
+      if (action === "preview" && onPreviewContext) {
+        const strategy = bodyEl.querySelector("#ctx-strategy-select")?.value;
+        const profile = bodyEl.querySelector("#ctx-profile-select")?.value;
+        const rawCeiling = bodyEl.querySelector("#ctx-user-limit-input")?.value;
+        const rawOut = bodyEl.querySelector("#ctx-output-res-input")?.value;
+        onPreviewContext({
+          profile,
+          compression_strategy: strategy,
+          user_context_limit: rawCeiling ? Number.parseInt(rawCeiling, 10) : null,
+          output_reservation_tokens: rawOut ? Number.parseInt(rawOut, 10) : null,
+        });
+      } else if (action === "compress" && onCompressContext) {
+        const strategy = bodyEl.querySelector("#ctx-strategy-select")?.value;
+        onCompressContext({ strategy });
+      }
+      return;
+    }
+
+    const togglePreviewBtn = event.target.closest("#btn-ctx-toggle-preview");
+    if (togglePreviewBtn) {
+      store.setState({
+        contextShowFormattedPreview: !store.getState().contextShowFormattedPreview,
+      });
+      return;
+    }
+
+    const delNoteBtn = event.target.closest("[data-ctx-delete-note]");
+    if (delNoteBtn && onDeleteWorkspaceNote) {
+      onDeleteWorkspaceNote(delNoteBtn.dataset.ctxDeleteNote);
+      return;
+    }
+
+    if (event.target.closest("#btn-refresh-model-registry") && onRefreshModelRegistry) {
+      onRefreshModelRegistry();
+      return;
+    }
+
+    const regEntryBtn = event.target.closest("[data-select-registry-entry]");
+    if (regEntryBtn) {
+      store.updatePrefs({ genSelectedRegistryEntryId: regEntryBtn.dataset.selectRegistryEntry || "" });
+      return;
+    }
+
+    const genRunBtn = event.target.closest("[data-select-generation-run]");
+    if (genRunBtn && onSelectGenerationRun) {
+      onSelectGenerationRun(genRunBtn.dataset.selectGenerationRun);
+    }
+  });
+
+  bodyEl.addEventListener("submit", (event) => {
+    if (event.target.id === "ctx-budget-form" && onApplyContextBudget) {
+      event.preventDefault();
+      const profile = bodyEl.querySelector("#ctx-profile-select")?.value;
+      const compression_strategy = bodyEl.querySelector("#ctx-strategy-select")?.value;
+      const rawCeiling = bodyEl.querySelector("#ctx-user-limit-input")?.value?.trim();
+      const rawOut = bodyEl.querySelector("#ctx-output-res-input")?.value?.trim();
+      onApplyContextBudget({
+        profile,
+        compression_strategy,
+        user_context_limit: rawCeiling ? Number.parseInt(rawCeiling, 10) : null,
+        clear_user_context_limit: !rawCeiling,
+        output_reservation_tokens: rawOut ? Number.parseInt(rawOut, 10) : null,
+        clear_output_reservation: !rawOut,
+      });
+      return;
+    }
+
+    if (event.target.id === "ctx-note-form" && onAddWorkspaceNote) {
+      event.preventDefault();
+      const titleEl = bodyEl.querySelector("#ctx-note-title");
+      const contentEl = bodyEl.querySelector("#ctx-note-content");
+      const title = titleEl?.value?.trim();
+      const content = contentEl?.value?.trim();
+      if (title && content) {
+        onAddWorkspaceNote({ title, content });
+      }
+    }
+  });
+
+  bodyEl.addEventListener("change", (event) => {
+    const noteCheck = event.target.closest("[data-ctx-toggle-note]");
+    if (noteCheck && onToggleWorkspaceNote) {
+      onToggleWorkspaceNote(noteCheck.dataset.ctxToggleNote, Boolean(noteCheck.checked));
     }
   });
 
@@ -602,6 +714,20 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
       detailLoading: state.sourceDetailLoading,
       detailError: state.sourceDetailError,
       highlightedEvidenceId: state.highlightedEvidenceId || null,
+      ctxCaps: state.contextCapabilities?.max_context_tokens || null,
+      ctxBudgetUpdated: state.contextBudget?.config?.updated_at || null,
+      ctxPreviewId: state.contextPreview?.context_package?.context_id || null,
+      ctxCompRatio: state.contextCompressionPreview?.compression?.compressed_total_tokens ?? null,
+      ctxNotesCount: (state.contextNotes || []).map((n) => `${n.note_id}:${n.enabled}`).join(","),
+      ctxLoading: state.contextLoading,
+      ctxErr: state.contextError,
+      ctxShowPre: state.contextShowFormattedPreview,
+      genSelModel: state.prefs.genSelectedRegistryEntryId || null,
+      genRegLen: (state.modelRegistry || []).map((m) => `${m.entry_id}:${m.is_active}:${m.connection_status}`).join(","),
+      genResId: state.generationResult?.generation_id || null,
+      genResStatus: state.generationResult?.status || null,
+      genRunsLen: (state.generationRuns || []).length,
+      genRunning: state.generationRunning,
     });
 
     if (sig === lastRenderSig && bodyEl.children.length > 0) {
@@ -616,6 +742,10 @@ export function createInspector({ store, onSelectSource, onFilterPassages, onJum
       bodyEl.innerHTML = renderPassagesTab(state, pkg, sourceIndexMap);
     } else if (activeTab === "conflicts") {
       bodyEl.innerHTML = renderConflictsTab(pkg);
+    } else if (activeTab === "context") {
+      bodyEl.innerHTML = renderContextInspectorTab(state, pkg);
+    } else if (activeTab === "generation") {
+      bodyEl.innerHTML = renderGenerationInspectorTab(state, pkg);
     } else {
       bodyEl.innerHTML = renderAuditTab(state, pkg);
     }

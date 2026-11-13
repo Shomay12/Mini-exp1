@@ -112,10 +112,88 @@ CREATE TABLE IF NOT EXISTS llm_connections (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS context_budget_configs (
+    id TEXT PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_turns (
+    id TEXT PRIMARY KEY,
+    research_id TEXT NOT NULL DEFAULT 'global',
+    scope TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    decisions_json TEXT NOT NULL DEFAULT '[]',
+    unresolved_questions_json TEXT NOT NULL DEFAULT '[]',
+    token_count INTEGER NOT NULL DEFAULT 0,
+    compacted INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workspace_notes (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'default',
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_registry_entries (
+    entry_id TEXT PRIMARY KEY,
+    connection_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    entry_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (connection_id) REFERENCES llm_connections(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS generation_runs (
+    generation_id TEXT PRIMARY KEY,
+    research_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (research_id) REFERENCES research_runs(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    research_id TEXT PRIMARY KEY,
+    original_query TEXT NOT NULL,
+    research_objective TEXT NOT NULL,
+    status TEXT NOT NULL,
+    current_iteration INTEGER NOT NULL DEFAULT 0,
+    session_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_trace_entries (
+    trace_id TEXT PRIMARY KEY,
+    research_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    iteration INTEGER NOT NULL,
+    phase TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    entry_json TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY (research_id) REFERENCES agent_sessions(research_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_sources_research ON sources(research_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_research ON evidence_items(research_id);
 CREATE INDEX IF NOT EXISTS idx_runs_expires ON research_runs(expires_at);
 CREATE INDEX IF NOT EXISTS idx_llm_active ON llm_connections(is_active);
+CREATE INDEX IF NOT EXISTS idx_conv_turns_research ON conversation_turns(research_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_workspace_notes_ws ON workspace_notes(workspace_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_model_registry_conn ON model_registry_entries(connection_id, model_id);
+CREATE INDEX IF NOT EXISTS idx_generation_research ON generation_runs(research_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_status ON agent_sessions(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_agent_trace_seq ON agent_trace_entries(research_id, sequence);
 """
 
 

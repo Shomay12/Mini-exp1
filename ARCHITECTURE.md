@@ -174,3 +174,67 @@ Extends the core Web Intelligence Layer to connect any user-hosted HTTP inferenc
   2. Stages 3–4 retrieve, normalize, deduplicate, chunk, rank, extract claims, detect conflicts, and analyze coverage independently.
   3. `AdaptiveContextBudgetManager` dynamically packs evidence within `max_context_tokens - reserved_system_tokens - reserved_output_tokens`, prioritizing detected source conflicts and domain diversity.
   4. `LocalAnswerGenerator` produces grounded synthesis citing `[E#]` passages; `LocalEvidenceVerifier` verifies citations against allocated evidence, flags ungrounded numeric claims, and checks whether conflicts were acknowledged.
+
+---
+
+## Stage 5 — Adaptive Context Management Engine (`web_intelligence/app/context/`)
+
+Prepares model-independent, validated, evidence-grounded context packages for locally hosted language models without silently exceeding context limits or dropping contradictory claims and citations.
+
+### 1. Capabilities & Token Estimation (`token_estimator.py`)
+- `inspect_adapter_context_capabilities` / `normalize_model_context_capabilities` read verified/configured limits from the active `LocalModelAdapter` (strictly honoring `CapabilityProvenance.context_length` and `.max_output_tokens` rather than guessing limits from model names).
+- `resolve_token_estimator` prefers `TokenizerBackedEstimator` when the active adapter exposes a real tokenizer and otherwise falls back to `ConservativeHeuristicEstimator`, explicitly reporting `is_approximate=True` across `TokenEstimate`, `ModelContextCapabilities`, and `ContextPackage`.
+
+### 2. Task-Aware Budget Management (`allocation_policy.py`, `budget_manager.py`)
+- `DynamicContextBudgetManager` and `AllocationPolicy` partition the effective context ceiling (never exceeding verified/configured model limits) across 7 buckets: `system`, `query`, `history`, `evidence`, `metadata`, `output_reservation`, and `safety_margin`, dynamically reallocating unused history budget to evidence.
+- Supports `AllocationProfile` presets (`quick_answer`, `standard_research`, `deep_research`, `long_form`, `custom`, plus compatibility alias `balanced` -> `standard_research`), optional user context ceilings, custom normalized bucket weights, `ExpectedOutputLength` hints, and strict `ContextLimitExceededError` / `ContextConfigurationError` guards.
+
+### 3. Evidence Selection & Compression (`evidence_selector.py`, `context_compressor.py`)
+- `EvidenceSelector` uses a swappable `EvidenceScoringStrategy` (default: `DeterministicEvidenceScoringStrategy`) balancing relevance, subtopic coverage, source independence, provenance classification, claim support, conflict pairing (paired `ClaimConflict` items stay together rather than discarding dissenting sources), recency, and token cost while recording excluded passages and reasons.
+- `ContextCompressor` supports `none`, `extractive` (including sentence/chunk segmentation for long unpunctuated blocks), `deduplication` (minimizes redundant overlap while merging independent source references and keeping contradictory positions intact), `structured` (`StructuredFactEntry` facts, dates, numbers, entities, and `[E#]` refs), and `model_assisted` (validates citations, dates, numbers, and named entities against source evidence and falls back cleanly to `structured` compression if omitted/corrupted or if inference fails), always retaining original evidence for inspection.
+
+### 4. History, Assembly & Pre-Inference Validation (`history_manager.py`, `context_builder.py`, `context_validator.py`, `engine.py`)
+- `ConversationHistoryManager` manages `current_turn`, `session`, and persistent user-controlled `WorkspaceNote` entries in SQLite (`conversation_turns`, `workspace_notes`, plus `context_budget_configs` in `storage/database.py`), compacting older turns while preserving `decisions` and `unresolved_questions` without deleting active research evidence.
+- `StructuredContextBuilder` assembles the model-independent `ContextPackage`, and `ContextAdapterConverter` formats `LLMInferenceRequest` chat messages for any adapter.
+- `ContextValidator` executes 7 pre-inference checks (`token_usage_estimation`, `active_context_limit_compliance`, `output_token_reservation`, `source_reference_integrity`, `context_section_well_formedness`, `configured_budget_compliance`, `non_truncation_evidence_guard`) without ever silently truncating evidence.
+
+### 5. Context API & Context Inspector UI
+- FastAPI router `web_intelligence/app/api/routes/context.py` (orchestrated via `ContextManagementEngine`) exposes:
+  - `GET /api/v1/context/capabilities`
+  - `GET /api/v1/context/budget` & `PUT /api/v1/context/budget`
+  - `POST /api/v1/context/preview` & `GET /api/v1/context/{research_id}`
+  - `POST /api/v1/context/validate` & `POST /api/v1/context/compress`
+  - Workspace note and turn helpers: `GET`/`POST /api/v1/context/notes`, `PATCH`/`DELETE /api/v1/context/notes/{note_id}`, `POST /api/v1/context/history/{research_id}`
+- Workbench UI adds a **Context Inspector** tab (`ui/js/components/context_inspector.js` wired into `inspector.js`, `toolbar.js`, `state.js`, `api.js`, `app.js`, `index.html`, and `styles/components.css`) showing active model limits, adaptive allocation controls, compression status, selected vs excluded evidence passages, workspace notes, validation diagnostics, and pre-submission prompt preview.
+
+---
+
+## Stage 6 — Universal Local LLM Execution & Answer Generation Engine
+
+Connects the Stage 4 Web Intelligence Engine and Stage 5 Adaptive Context Management Engine cleanly to user-hosted inference servers (`Ollama`, `LM Studio`, `llama.cpp`, `vLLM`, `LocalAI`, or custom OpenAI-compatible servers) with zero mandatory cloud dependencies.
+
+### 1. Persistent ModelRegistry (`web_intelligence/app/llm/model_registry.py`)
+- Synchronizes automatically with `LLMConnectionManager` across create/update/test/discover/select/activate/disconnect operations (`model_registry_entries` SQLite table).
+- Tracks provider ID, sanitized display-safe endpoint URL (`sanitize_endpoint_for_registry`, zero secrets or query tokens), model identifier, capability provenance (`CapabilityProvenance`), connection status, and optional per-task roles (`ModelTaskRole`: `default`, `synthesis`, `outline`, `report_section`, `extraction`).
+- Supports manual model registration (`POST /api/v1/llm/registry`) when an inference endpoint does not expose `/v1/models` or `/api/tags`.
+
+### 2. Hardened Adapter Execution, Streaming & Cancellation (`web_intelligence/app/generation/executor.py`)
+- Both `OpenAICompatibleAdapter` and `OllamaAdapter` support configurable `stop` sequences, per-request `timeout_seconds`, and mid-stream SSE/NDJSON error frame propagation without synthesizing fake streaming tokens when `streaming=False`.
+- `InferenceExecutor` and `GenerationJobRegistry` handle cooperative mid-stream cancellation and client disconnect awareness, closing upstream HTTP streams and returning partial responses cleanly (`GenerationStatus.CANCELLED`, `partial=True`).
+- All upstream auth, connectivity, timeout, and malformed-response errors normalize to secret-scrubbed `GenerationError` subclasses (`ModelNotConfiguredError`, `ContextBudgetBlockedError`, `ProviderAuthFailedError`, `ProviderTimeoutError`, `ProviderUnavailableError`, `ProviderResponseInvalidError`).
+
+### 3. Prompt Compilation & Citation Integrity (`web_intelligence/app/generation/prompt_compiler.py`, `citations.py`)
+- `PromptCompiler` supports five templates (`quick_answer`, `detailed_explanation`, `research_report`, `comparative_analysis`, `technical_report`), four formats (`prose`, `markdown`, `bullets`, `json`), and three output lengths (`short`, `medium`, `long`).
+- Maps Stage 5 evidence passages and sources to concise `[S1]`..`[Sn]` citation tags, wraps untrusted webpage content in `<untrusted_source_data>` / `<untrusted_conflict_data>` boundaries with closing-tag escaping, and enforces token limits before inference via `BaseContextTokenEstimator.estimate_messages(...)`.
+- `CitationResolver` and `CitationValidator` resolve `[S1]` / `[S1, S2]` (plus fallback Stage-5 `[E#]` refs) into `CitationEntry` objects with exact character spans, flag unsupported `[S#]` tags, and warn on uncited declarative claims while explicitly stating that valid citation provenance is distinct from independent factual proof.
+
+### 4. Standard & Multi-Stage Long-Form Synthesis (`answer_generator.py`, `long_form.py`)
+- `AnswerGenerator` coordinates Stage 5 `ContextManagementEngine` validation, prompt compilation, native JSON or prompted-JSON fallback parsing (`response_format`), truncation metadata (`finish_reason="length"`), omitted server usage (`usage=None`), and SQLite persistence (`generation_runs`).
+- `LongFormReportGenerator` constructs section outlines from research subtopics and conflicts, enforces per-section Stage 5 context budgets (pairing conflicting sides together so dissent is never suppressed), streams section events (`outline`, `section_start`, `section_complete`, `delta`), and runs cross-section repetition and contradiction checks.
+
+### 5. Generation API & Workbench Answer UI
+- FastAPI router `web_intelligence/app/api/routes/generation.py` adds:
+  - `POST /api/v1/generation` and `POST /api/v1/generation/stream` (true SSE frames: `start`, `outline`, `section_start`, `section_complete`, `delta`, `warning`, `citation`, `cancelled`, `error`, `complete`)
+  - `GET /api/v1/generation`, `GET /api/v1/generation/{generation_id}`, `POST /api/v1/generation/{generation_id}/cancel`
+  - `GET`/`POST /api/v1/llm/registry` and `PATCH /api/v1/llm/registry/{entry_id}/roles`
+- Workbench UI adds `ui/js/components/generation_workspace.js` (multi-server model selector, template/format/length/mode controls, live streaming markdown/JSON output, **Stop Generating**, interactive clickable `[S#]` citation chips, expandable sources drawer, AI grounding notice) and `ui/js/components/generation_inspector.js` (**Gen** Inspector tab showing telemetry, server usage, citation validation diagnostics, model registry, and run history).

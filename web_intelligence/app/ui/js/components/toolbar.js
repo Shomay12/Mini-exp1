@@ -92,12 +92,21 @@ export function createToolbar({ store, onModeChange, onExportJson, onOpenSetting
     }
     statusEl.innerHTML = `<span class="status-dot" aria-hidden="true"></span><span>${escapeHtml(statusText)}</span>`;
 
-    // Concise context budget text
-    const totalBudget = Math.max(512, Number(state.prefs.contextBudgetTokens) || 8192);
-    const reserved = Math.min(totalBudget - 256, Math.max(0, Number(state.prefs.reservedOutputTokens) || 1024));
-    const availableEvidenceBudget = Math.max(256, totalBudget - reserved);
-    const usedTokens = state.researchPackage?.metadata?.total_token_estimate ?? 0;
-    budgetLabelEl.textContent = `${formatNumber(usedTokens)} / ${formatNumber(availableEvidenceBudget)} tok`;
+    // Concise context budget text grounded in Stage 5 ContextBudget / Preview when available
+    const previewPkg = state.contextPreview?.context_package;
+    const alloc = previewPkg?.budget_allocation || state.contextBudget?.effective_allocation;
+    if (previewPkg) {
+      const approx = previewPkg.estimation_is_approximate ? "~" : "";
+      budgetLabelEl.textContent = `${approx}${formatNumber(previewPkg.total_with_output_tokens)} / ${formatNumber(alloc?.effective_context_limit || 8192)} tok`;
+    } else if (alloc) {
+      budgetLabelEl.textContent = `0 / ${formatNumber(alloc.effective_context_limit)} tok`;
+    } else {
+      const totalBudget = Math.max(512, Number(state.prefs.contextBudgetTokens) || 8192);
+      const reserved = Math.min(totalBudget - 256, Math.max(0, Number(state.prefs.reservedOutputTokens) || 1024));
+      const availableEvidenceBudget = Math.max(256, totalBudget - reserved);
+      const usedTokens = state.researchPackage?.metadata?.total_token_estimate ?? 0;
+      budgetLabelEl.textContent = `${formatNumber(usedTokens)} / ${formatNumber(availableEvidenceBudget)} tok`;
+    }
 
     const hasExportable = Boolean(
       (state.mode === "research" && state.researchPackage) ||

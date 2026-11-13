@@ -9,8 +9,14 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 from pydantic import SecretStr
 
+from web_intelligence.app.context.models import (
+    ContextBudgetConfig,
+    ConversationTurn,
+    WorkspaceNote,
+)
 from web_intelligence.app.schemas.documents import SourceRecord
 from web_intelligence.app.schemas.evidence import CoverageStatus
+from web_intelligence.app.schemas.generation import GenerationResult, ModelRegistryEntry
 from web_intelligence.app.schemas.llm import (
     ConnectionStatus,
     LLMConnectionConfig,
@@ -255,6 +261,10 @@ class ResearchRepository:
         """Delete a research run and all cascaded artifacts."""
         conn = await self._open()
         try:
+            await conn.execute(
+                "DELETE FROM conversation_turns WHERE research_id = ?",
+                (research_id,),
+            )
             cursor = await conn.execute(
                 "DELETE FROM research_runs WHERE id = ?",
                 (research_id,),
@@ -479,6 +489,567 @@ class ResearchRepository:
             cursor = await conn.execute(
                 "DELETE FROM llm_connections WHERE id = ?",
                 (connection_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            await conn.close()
+
+    async def get_context_budget_config(self, config_id: str = "default") -> ContextBudgetConfig | None:
+        """Load persisted context budget configuration, if saved."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "SELECT config_json FROM context_budget_configs WHERE id = ?",
+                (config_id,),
+            )
+            row = await cursor.fetchone()
+            if not row or not row[0]:
+                return None
+            return ContextBudgetConfig.model_validate_json(row[0])
+        finally:
+            await conn.close()
+
+    async def save_context_budget_config(self, config: ContextBudgetConfig) -> ContextBudgetConfig:
+        """Persist active context budget configuration locally."""
+        conn = await self._open()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO context_budget_configs (id, config_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    config_json = excluded.config_json,
+                    updated_at = excluded.updated_at
+                """,
+                (config.id, config.model_dump_json(), config.updated_at.isoformat()),
+            )
+            await conn.commit()
+            return config
+        finally:
+            await conn.close()
+
+    async def save_conversation_turn(self, turn: ConversationTurn) -> ConversationTurn:
+        """Persist a single conversation turn scoped to a research session or global workspace."""
+        conn = await self._open()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO conversation_turns (
+                    id, research_id, scope, role, content, decisions_json,
+                    unresolved_questions_json, token_count, compacted, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    content = excluded.content,
+                    decisions_json = excluded.decisions_json,
+                    unresolved_questions_json = excluded.unresolved_questions_json,
+                    token_count = excluded.token_count,
+                    compacted = excluded.compacted
+                """,
+                (
+                    turn.turn_id,
+                    turn.research_id,
+                    turn.scope,
+                    turn.role,
+                    turn.content,
+                    json.dumps(turn.decisions),
+                    json.dumps(turn.unresolved_questions),
+                    turn.token_count,
+                    1 if turn.compacted else 0,
+                    turn.created_at.isoformat(),
+                ),
+            )
+            await conn.commit()
+            return turn
+        finally:
+            await conn.close()
+
+    async def list_conversation_turns(self, research_id: str = "global") -> list[ConversationTurn]:
+        """Load chronological conversation turns for a research session."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                """
+                SELECT id, research_id, scope, role, content, decisions_json,
+                       unresolved_questions_json, token_count, compacted, created_at
+                FROM conversation_turns
+                WHERE research_id = ?
+                ORDER BY created_at ASC
+                """,
+                (research_id,),
+            )
+            rows = await cursor.fetchall()
+            return [
+                ConversationTurn(
+                    turn_id=row[0],
+                    research_id=row[1],
+                    scope=row[2],
+                    role=row[3],
+                    content=row[4],
+                    decisions=json.loads(row[5] or "[]"),
+                    unresolved_questions=json.loads(row[6] or "[]"),
+                    token_count=int(row[7]),
+                    compacted=bool(row[8]),
+                    created_at=datetime.fromisoformat(row[9]),
+                )
+                for row in rows
+            ]
+        finally:
+            await conn.close()
+
+    async def save_workspace_note(self, note: WorkspaceNote) -> WorkspaceNote:
+        """Persist or update a user-controlled workspace research note."""
+        conn = await self._open()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO workspace_notes (
+                    id, workspace_id, title, content, enabled, token_count, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    content = excluded.content,
+                    enabled = excluded.enabled,
+                    token_count = excluded.token_count,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    note.note_id,
+                    note.workspace_id,
+                    note.title,
+                    note.content,
+                    1 if note.enabled else 0,
+                    note.token_count,
+                    note.created_at.isoformat(),
+                    note.updated_at.isoformat(),
+                ),
+            )
+            await conn.commit()
+            return note
+        finally:
+            await conn.close()
+
+    async def get_workspace_note(self, note_id: str) -> WorkspaceNote | None:
+        """Load a single workspace note by ID."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                """
+                SELECT id, workspace_id, title, content, enabled, token_count, created_at, updated_at
+                FROM workspace_notes
+                WHERE id = ?
+                """,
+                (note_id,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return WorkspaceNote(
+                note_id=row[0],
+                workspace_id=row[1],
+                title=row[2],
+                content=row[3],
+                enabled=bool(row[4]),
+                user_controlled=True,
+                token_count=int(row[5]),
+                created_at=datetime.fromisoformat(row[6]),
+                updated_at=datetime.fromisoformat(row[7]),
+            )
+        finally:
+            await conn.close()
+
+    async def list_workspace_notes(self, workspace_id: str = "default") -> list[WorkspaceNote]:
+        """List all persisted user-controlled workspace notes."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                """
+                SELECT id, workspace_id, title, content, enabled, token_count, created_at, updated_at
+                FROM workspace_notes
+                WHERE workspace_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (workspace_id,),
+            )
+            rows = await cursor.fetchall()
+            return [
+                WorkspaceNote(
+                    note_id=row[0],
+                    workspace_id=row[1],
+                    title=row[2],
+                    content=row[3],
+                    enabled=bool(row[4]),
+                    user_controlled=True,
+                    token_count=int(row[5]),
+                    created_at=datetime.fromisoformat(row[6]),
+                    updated_at=datetime.fromisoformat(row[7]),
+                )
+                for row in rows
+            ]
+        finally:
+            await conn.close()
+
+    async def delete_workspace_note(self, note_id: str) -> bool:
+        """Delete a workspace note by ID."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "DELETE FROM workspace_notes WHERE id = ?",
+                (note_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            await conn.close()
+
+    async def save_model_registry_entry(
+        self, entry: ModelRegistryEntry
+    ) -> ModelRegistryEntry:
+        """Persist a registered local LLM model record (never stores API credentials)."""
+        conn = await self._open()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO model_registry_entries (
+                    entry_id, connection_id, model_id, entry_json, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(entry_id) DO UPDATE SET
+                    connection_id = excluded.connection_id,
+                    model_id = excluded.model_id,
+                    entry_json = excluded.entry_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    entry.entry_id,
+                    entry.connection_id,
+                    entry.model_id,
+                    entry.model_dump_json(),
+                    entry.updated_at.isoformat(),
+                ),
+            )
+            await conn.commit()
+            return entry
+        finally:
+            await conn.close()
+
+    async def get_model_registry_entry(
+        self, entry_id: str
+    ) -> ModelRegistryEntry | None:
+        """Load one persisted ModelRegistryEntry by ID."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "SELECT entry_json FROM model_registry_entries WHERE entry_id = ?",
+                (entry_id,),
+            )
+            row = await cursor.fetchone()
+            return ModelRegistryEntry.model_validate_json(row[0]) if row and row[0] else None
+        finally:
+            await conn.close()
+
+    async def list_model_registry_entries(
+        self, connection_id: str | None = None
+    ) -> list[ModelRegistryEntry]:
+        """List all persisted model registry entries, optionally filtered by connection."""
+        conn = await self._open()
+        try:
+            if connection_id is not None:
+                cursor = await conn.execute(
+                    """
+                    SELECT entry_json
+                    FROM model_registry_entries
+                    WHERE connection_id = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (connection_id,),
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT entry_json
+                    FROM model_registry_entries
+                    ORDER BY updated_at DESC
+                    """
+                )
+            rows = await cursor.fetchall()
+            return [ModelRegistryEntry.model_validate_json(r[0]) for r in rows if r and r[0]]
+        finally:
+            await conn.close()
+
+    async def delete_model_registry_entry(self, entry_id: str) -> bool:
+        """Delete one model registry entry."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "DELETE FROM model_registry_entries WHERE entry_id = ?",
+                (entry_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            await conn.close()
+
+    async def delete_model_registry_entries_for_connection(
+        self, connection_id: str
+    ) -> int:
+        """Delete all model registry entries associated with a connection."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "DELETE FROM model_registry_entries WHERE connection_id = ?",
+                (connection_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount
+        finally:
+            await conn.close()
+
+    async def save_generation_result(self, result: GenerationResult) -> GenerationResult:
+        """Persist or update a local LLM generation result (including partial/cancelled states)."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        conn = await self._open()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO generation_runs (
+                    generation_id, research_id, status, result_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(generation_id) DO UPDATE SET
+                    status = excluded.status,
+                    result_json = excluded.result_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    result.generation_id,
+                    result.research_id,
+                    result.status.value,
+                    result.model_dump_json(),
+                    result.created_at.isoformat(),
+                    now_iso,
+                ),
+            )
+            await conn.commit()
+            return result
+        finally:
+            await conn.close()
+
+    async def get_generation_result(
+        self, generation_id: str
+    ) -> GenerationResult | None:
+        """Retrieve a persisted GenerationResult by ID."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "SELECT result_json FROM generation_runs WHERE generation_id = ?",
+                (generation_id,),
+            )
+            row = await cursor.fetchone()
+            return GenerationResult.model_validate_json(row[0]) if row and row[0] else None
+        finally:
+            await conn.close()
+
+    async def list_generation_results(
+        self, research_id: str | None = None, limit: int = 20
+    ) -> list[GenerationResult]:
+        """List generation runs ordered newest first."""
+        conn = await self._open()
+        try:
+            if research_id is not None:
+                cursor = await conn.execute(
+                    """
+                    SELECT result_json
+                    FROM generation_runs
+                    WHERE research_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (research_id, max(1, limit)),
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT result_json
+                    FROM generation_runs
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (max(1, limit),),
+                )
+            rows = await cursor.fetchall()
+            return [GenerationResult.model_validate_json(r[0]) for r in rows if r and r[0]]
+        finally:
+            await conn.close()
+
+    # --- Stage 7 Agent Research Sessions & Operational Trace Operations ---
+
+    async def save_agent_session(self, session: object) -> None:
+        """Persist or checkpoint a Stage 7 ResearchSession."""
+        from web_intelligence.app.agent.models import ResearchSession
+
+        obj = session if isinstance(session, ResearchSession) else ResearchSession.model_validate(session)
+        conn = await self._open()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO agent_sessions (
+                    research_id, original_query, research_objective, status,
+                    current_iteration, session_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(research_id) DO UPDATE SET
+                    original_query = excluded.original_query,
+                    research_objective = excluded.research_objective,
+                    status = excluded.status,
+                    current_iteration = excluded.current_iteration,
+                    session_json = excluded.session_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    obj.research_id,
+                    obj.original_query,
+                    obj.research_objective,
+                    obj.status.value,
+                    obj.current_iteration,
+                    obj.model_dump_json(),
+                    obj.created_at.isoformat(),
+                    obj.updated_at.isoformat(),
+                ),
+            )
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def get_agent_session(self, research_id: str):
+        """Load a persisted Stage 7 ResearchSession by ID."""
+        from web_intelligence.app.agent.models import ResearchSession
+
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "SELECT session_json FROM agent_sessions WHERE research_id = ?",
+                (research_id,),
+            )
+            row = await cursor.fetchone()
+            return ResearchSession.model_validate_json(row[0]) if row and row[0] else None
+        finally:
+            await conn.close()
+
+    async def list_agent_sessions(self, limit: int = 30):
+        """List Stage 7 agent sessions newest first as compact summaries."""
+        from web_intelligence.app.agent.models import AgentSessionSummary, ResearchSession
+
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                """
+                SELECT session_json
+                FROM agent_sessions
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (max(1, limit),),
+            )
+            rows = await cursor.fetchall()
+            summaries: list[AgentSessionSummary] = []
+            for row in rows:
+                if not row or not row[0]:
+                    continue
+                s = ResearchSession.model_validate_json(row[0])
+                summaries.append(
+                    AgentSessionSummary(
+                        research_id=s.research_id,
+                        original_query=s.original_query,
+                        research_objective=s.research_objective,
+                        research_depth=s.research_depth,
+                        status=s.status,
+                        current_iteration=s.current_iteration,
+                        current_phase=s.current_phase,
+                        tasks_completed=s.research_metrics.tasks_completed,
+                        tasks_total=s.research_metrics.tasks_total,
+                        sources_retained=s.research_metrics.sources_retained,
+                        conflicts_detected=s.research_metrics.conflicts_detected,
+                        gaps_unresolved=s.research_metrics.gaps_unresolved,
+                        active_model_id=s.active_model_id,
+                        created_at=s.created_at,
+                        updated_at=s.updated_at,
+                    )
+                )
+            return summaries
+        finally:
+            await conn.close()
+
+    async def append_agent_trace_entries(self, entries: list[object]) -> None:
+        """Append chronological ResearchTraceEntry records idempotently."""
+        if not entries:
+            return
+        from web_intelligence.app.agent.models import ResearchTraceEntry
+
+        conn = await self._open()
+        try:
+            for item in entries:
+                entry = (
+                    item
+                    if isinstance(item, ResearchTraceEntry)
+                    else ResearchTraceEntry.model_validate(item)
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO agent_trace_entries (
+                        trace_id, research_id, sequence, iteration,
+                        phase, event_type, entry_json, timestamp
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(trace_id) DO NOTHING
+                    """,
+                    (
+                        entry.trace_id,
+                        entry.research_id,
+                        entry.sequence,
+                        entry.iteration,
+                        entry.phase,
+                        entry.event_type.value,
+                        entry.model_dump_json(),
+                        entry.timestamp.isoformat(),
+                    ),
+                )
+            await conn.commit()
+        finally:
+            await conn.close()
+
+    async def list_agent_trace_entries(
+        self, research_id: str, *, limit: int = 500
+    ):
+        """Return ordered operational trace entries for `research_id`."""
+        from web_intelligence.app.agent.models import ResearchTraceEntry
+
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                """
+                SELECT entry_json
+                FROM agent_trace_entries
+                WHERE research_id = ?
+                ORDER BY sequence ASC
+                LIMIT ?
+                """,
+                (research_id, max(1, limit)),
+            )
+            rows = await cursor.fetchall()
+            return [ResearchTraceEntry.model_validate_json(r[0]) for r in rows if r and r[0]]
+        finally:
+            await conn.close()
+
+    async def delete_agent_session(self, research_id: str) -> bool:
+        """Delete an agent session and its trace rows cleanly."""
+        conn = await self._open()
+        try:
+            cursor = await conn.execute(
+                "DELETE FROM agent_sessions WHERE research_id = ?",
+                (research_id,),
             )
             await conn.commit()
             return cursor.rowcount > 0

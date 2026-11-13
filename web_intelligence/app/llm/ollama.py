@@ -294,6 +294,9 @@ class OllamaAdapter(UniversalLocalModelAdapter):
                 "num_ctx": effective_ctx,
             },
         }
+        stop_sequences = self._normalize_stop_sequences(request.stop)
+        if stop_sequences:
+            payload["options"]["stop"] = stop_sequences
         if request.response_format == "json_object":
             payload["format"] = "json"
         if request.tools:
@@ -316,7 +319,7 @@ class OllamaAdapter(UniversalLocalModelAdapter):
         chat_url = self._chat_url()
 
         try:
-            async with await self._open_client() as client:
+            async with await self._open_client(timeout_override=request.timeout_seconds) as client:
                 response = await client.post(chat_url, json=payload)
                 self._check_response_status(response, action="Ollama chat completion")
                 data = response.json()
@@ -394,7 +397,7 @@ class OllamaAdapter(UniversalLocalModelAdapter):
         chat_url = self._chat_url()
 
         try:
-            async with await self._open_client() as client:
+            async with await self._open_client(timeout_override=request.timeout_seconds) as client:
                 async with client.stream("POST", chat_url, json=payload) as response:
                     self._check_response_status(
                         response, action="Ollama streaming chat completion"
@@ -411,6 +414,16 @@ class OllamaAdapter(UniversalLocalModelAdapter):
                             continue
                         if not isinstance(event, dict):
                             continue
+                        if event.get("error") is not None:
+                            err_val = event["error"]
+                            err_msg = (
+                                err_val.get("message")
+                                if isinstance(err_val, dict)
+                                else str(err_val)
+                            )
+                            raise LLMResponseError(
+                                f"Ollama streaming inference error: {self._safe_error(err_msg or 'server error')}"
+                            )
 
                         msg = (
                             event.get("message")

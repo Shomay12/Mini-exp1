@@ -7,6 +7,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -36,7 +37,9 @@ from web_intelligence.app.schemas.llm import (
     TestPromptRequest,
     TestPromptResponse,
 )
-from web_intelligence.app.storage.repositories import ResearchRepository
+if TYPE_CHECKING:
+    from web_intelligence.app.llm.model_registry import ModelRegistry
+    from web_intelligence.app.storage.repositories import ResearchRepository
 
 logger = get_logger("llm.manager")
 
@@ -64,11 +67,13 @@ class LLMConnectionManager:
         repository: ResearchRepository,
         *,
         registry: AdapterRegistry | None = None,
+        model_registry: ModelRegistry | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         resolver: AsyncResolver | None = None,
     ) -> None:
         self.repository = repository
         self.registry = registry or AdapterRegistry()
+        self.model_registry = model_registry
         self._transport = transport
         self._resolver = resolver
 
@@ -82,6 +87,8 @@ class LLMConnectionManager:
         ]
         if secrets:
             register_secrets(secrets)
+        if self.model_registry is not None:
+            await self.model_registry.initialize_from_connections()
 
     def _validate_provider(self, provider: str) -> str:
         normalized = provider.strip().lower()
@@ -200,6 +207,9 @@ class LLMConnectionManager:
             updated_at=now,
         )
         saved = await self.repository.save_llm_connection(config)
+        if self.model_registry is not None:
+            await self.model_registry.sync_connection(saved)
+            await self.model_registry.refresh_active_flags()
         logger.info(
             "Saved LLM connection configuration",
             extra={
@@ -316,6 +326,9 @@ class LLMConnectionManager:
             updated_at=datetime.now(timezone.utc),
         )
         saved = await self.repository.save_llm_connection(updated)
+        if self.model_registry is not None:
+            await self.model_registry.sync_connection(saved)
+            await self.model_registry.refresh_active_flags()
         return saved.to_public()
 
     async def delete_connection(self, connection_id: str) -> bool:
@@ -323,6 +336,8 @@ class LLMConnectionManager:
         deleted = await self.repository.delete_llm_connection(connection_id)
         if not deleted:
             raise ConnectionNotFoundError(f"LLM connection '{connection_id}' was not found.")
+        if self.model_registry is not None:
+            await self.model_registry.remove_connection_models(connection_id)
         return True
 
     async def activate_connection(self, connection_id: str) -> LLMConnectionPublic:
@@ -338,11 +353,16 @@ class LLMConnectionManager:
         )
         activated = await self.repository.set_active_llm_connection(connection_id)
         assert activated is not None
+        if self.model_registry is not None:
+            await self.model_registry.sync_connection(activated)
+            await self.model_registry.refresh_active_flags()
         return activated.to_public()
 
     async def disconnect_active(self) -> None:
         """Detach active LLM so research runs cleanly in zero-LLM mode."""
         await self.repository.set_active_llm_connection(None)
+        if self.model_registry is not None:
+            await self.model_registry.refresh_active_flags()
 
     async def test_connection(self, connection_id: str) -> ConnectionTestResponse:
         """Probe connection health, discover models, inspect capabilities, and persist status."""
@@ -369,6 +389,15 @@ class LLMConnectionManager:
             }
         )
         saved = await self.repository.save_llm_connection(updated_cfg)
+        if self.model_registry is not None:
+            await self.model_registry.sync_connection(
+                saved,
+                discovered_models=models,
+                ok=ok,
+                last_connected_at=now if ok else None,
+                last_error=None if ok else message,
+            )
+            await self.model_registry.refresh_active_flags()
         elapsed_ms = max(0, int((time.monotonic() - started) * 1000))
         return ConnectionTestResponse(
             connection=saved.to_public(),
@@ -383,6 +412,8 @@ class LLMConnectionManager:
         """Discover models from a connection endpoint without assuming discovery always exists."""
         cfg, adapter = await self.get_adapter(connection_id)
         models, supported, message = await adapter.list_models()
+        if self.model_registry is not None and supported:
+            await self.model_registry.sync_connection(cfg, discovered_models=models)
         return ModelDiscoveryResponse(
             connection_id=cfg.id,
             provider=cfg.provider,
@@ -412,6 +443,9 @@ class LLMConnectionManager:
         caps = await refreshed_adapter.inspect_model_capabilities(target)
         updated_cfg = updated_cfg.model_copy(update={"capabilities": caps})
         saved = await self.repository.save_llm_connection(updated_cfg)
+        if self.model_registry is not None:
+            await self.model_registry.sync_connection(saved)
+            await self.model_registry.refresh_active_flags()
         return saved.to_public()
 
     async def run_test_prompt(

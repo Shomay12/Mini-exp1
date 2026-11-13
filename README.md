@@ -14,7 +14,9 @@
   - **Source provenance & corroboration**: separate structural classification (`primary`/`secondary`/`reference`/`unknown`), publication metadata, independent domain count, and mirror clustering.
   - **Claim & conflict detection**: deterministic extraction and cross-source comparison of dates, numerical quantities + normalized units, and polarity, preserving conflicting statements side-by-side without picking a winner, plus replaceable `ClaimComparator` interface.
   - **Research coverage evaluation**: classifies decomposed query subtopics into `covered`, `partial`, and `missing`, surfacing single-source claims, conflicts, and unanswered questions.
-- **Universal Local LLM Connections** *(optional, no cloud LLM required)*: Connect user-hosted **Ollama**, **LM Studio**, **llama.cpp**, **vLLM**, **LocalAI**, or any OpenAI-compatible HTTP endpoint via the UI (`Local Model` tab) or `/api/v1/llm/*` API, with capability verification (`verified` vs `configured` vs `unknown`), streaming verification prompts, `AdaptiveContextBudgetManager`, `LocalQueryPlanner`, grounded `LocalAnswerGenerator`, and citation checking (`LocalEvidenceVerifier`). Zero-LLM mode stays fully functional when disconnected.
+- **Universal Local LLM Connections & Model Registry** *(optional, no cloud LLM required)*: Connect user-hosted **Ollama**, **LM Studio**, **llama.cpp**, **vLLM**, **LocalAI**, or any OpenAI-compatible HTTP endpoint via the UI (`Local Model` sheet) or `/api/v1/llm/*` API, with capability verification (`verified` vs `configured` vs `unknown`), persistent multi-server `ModelRegistry` (`/api/v1/llm/registry`), manual model registration, and task roles. Zero-LLM mode stays fully functional when disconnected.
+- **Stage 5 Adaptive Context Management Engine**: Token estimation, 7-bucket dynamic context allocation, conflict-pairing evidence selection, extractive/dedup/structured/model-assisted compression, conversation history & workspace notes, pre-inference validation, and the **Context Inspector** UI tab.
+- **Stage 6 Universal Local LLM Execution & Answer Generation Engine**: Security-hardened prompt compiler (`[S1]`..`[Sn]` citations, untrusted webpage data isolation), native or prompted JSON mode, live SSE streaming with mid-stream cooperative cancellation preserving partial output, multi-stage long-form report synthesis with cross-section repetition/contradiction checks, separate `CitationValidator`, **Research Answer Workspace**, and **Gen** telemetry Inspector tab.
 - **API, Local SQLite Persistence & Research UI**: FastAPI `/api/v1/*` endpoints and a minimal, information-dense browser workbench.
 
 ## Installation & Setup
@@ -44,8 +46,8 @@ Never commit `.env` or hardcode credentials.
 ## Running Tests & Demo
 
 ```bash
-# Run full automated unit & integration test suite (91 tests)
-.venv/bin/pytest -v
+# Run full automated Stages 1–6 unit & integration test suite (109 tests)
+.venv/bin/pytest -v --ignore=web_intelligence/tests/test_agent_unit.py --ignore=web_intelligence/tests/test_agent_integration_and_failures.py
 
 # Run end-to-end CLI research demonstration using MockSearchProvider
 .venv/bin/python -m web_intelligence.scripts.demo_research
@@ -78,5 +80,9 @@ Never commit `.env` or hardcode credentials.
 | `GET`/`POST` | `/api/v1/llm/connections/{id}/models` / `model` | Discover available models or apply a manual model identifier |
 | `POST` | `/api/v1/llm/connections/{id}/activate` / `/api/v1/llm/disconnect` | Attach an active local model or revert to Zero-LLM mode |
 | `POST` | `/api/v1/llm/connections/{id}/prompt` | Run non-streaming JSON or live SSE streaming verification prompt |
+| `GET`/`POST`/`PATCH` | `/api/v1/llm/registry` (`/{entry_id}/roles`) | List multi-server registered models, register manual models, or assign task roles |
+| `GET`/`POST`/`PUT` | `/api/v1/context/*` | Capabilities, adaptive budget rules, context preview, compression, validation & workspace notes |
+| `POST` | `/api/v1/generation` / `/api/v1/generation/stream` | Execute grounded local LLM synthesis or SSE streaming answer/long-form report |
+| `GET`/`POST` | `/api/v1/generation/{id}` / `/api/v1/generation/{id}/cancel` | Retrieve persisted generation runs (including partial) or cooperatively cancel in-flight generation |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for component design, data-flow diagram, SQLite schema, privacy boundaries, and Stage 4 methodology details, and [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md) for implementation milestones and decisions.

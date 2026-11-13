@@ -310,6 +310,8 @@ class LLMInferenceRequest(BaseModel):
     stream: bool = False
     response_format: Literal["text", "json_object"] = "text"
     tools: list[ToolDefinition] = Field(default_factory=list)
+    stop: list[str] | None = Field(default=None, max_length=16)
+    timeout_seconds: float | None = Field(default=None, ge=1.0, le=600.0)
 
 
 class LLMInferenceResponse(BaseModel):

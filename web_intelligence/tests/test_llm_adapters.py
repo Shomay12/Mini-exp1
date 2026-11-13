@@ -524,3 +524,106 @@ async def test_connection_manager_lifecycle_prompt_and_secret_redaction(tmp_path
     await manager.delete_connection(created.id)
     with pytest.raises(ConnectionNotFoundError):
         await manager.get_connection(created.id)
+
+
+@pytest.mark.asyncio
+async def test_adapters_stop_sequences_timeout_override_and_midstream_errors() -> None:
+    captured: list[dict] = []
+
+    def oai_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else {}
+        captured.append(body)
+        if body.get("stream"):
+            sse = (
+                'data: {"model":"qwen","choices":[{"index":0,"delta":{"content":"Partial"}}]}\n\n'
+                'data: {"error":{"message":"context overflow mid-stream"}}\n\n'
+            )
+            return httpx.Response(200, content=sse.encode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "model": "qwen",
+                "choices": [{"message": {"content": "Stopped"}, "finish_reason": "stop"}],
+            },
+        )
+
+    oai = AdapterRegistry().create(
+        LLMConnectionConfig(
+            id="oai-stop",
+            name="OAI",
+            provider="openai-compatible",
+            base_url="http://localhost:8000/v1",
+            model="qwen",
+            context_length=8192,
+            max_output_tokens=512,
+        ),
+        transport=httpx.MockTransport(oai_handler),
+    )
+    res = await oai.chat(
+        LLMInferenceRequest(
+            messages=[ChatMessage(role="user", content="Hi")],
+            stop=["END", "", "STOP", "END"],
+            timeout_seconds=12.5,
+        )
+    )
+    assert res.content == "Stopped"
+    assert captured[-1]["stop"] == ["END", "STOP"]
+
+    with pytest.raises(LLMResponseError, match="context overflow mid-stream"):
+        async for _ in oai.stream_chat(
+            LLMInferenceRequest(
+                messages=[ChatMessage(role="user", content="Stream err")],
+                stream=True,
+                timeout_seconds=8.0,
+            )
+        ):
+            pass
+
+    ollama_bodies: list[dict] = []
+
+    def ollama_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else {}
+        ollama_bodies.append(body)
+        if body.get("stream"):
+            ndjson = (
+                json.dumps({"model": "llama3", "message": {"content": "chunk1"}, "done": False})
+                + "\n"
+                + json.dumps({"error": "model unloaded mid-stream"})
+                + "\n"
+            )
+            return httpx.Response(200, content=ndjson.encode("utf-8"))
+        return httpx.Response(
+            200,
+            json={"model": "llama3", "message": {"content": "Ollama stopped"}, "done": True},
+        )
+
+    ollama = AdapterRegistry().create(
+        LLMConnectionConfig(
+            id="ol-stop",
+            name="Ollama",
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3",
+            context_length=8192,
+            max_output_tokens=512,
+        ),
+        transport=httpx.MockTransport(ollama_handler),
+    )
+    ol_res = await ollama.chat(
+        LLMInferenceRequest(
+            messages=[ChatMessage(role="user", content="Hi")],
+            stop=["</answer>"],
+            timeout_seconds=15.0,
+        )
+    )
+    assert ol_res.content == "Ollama stopped"
+    assert ollama_bodies[-1]["options"]["stop"] == ["</answer>"]
+
+    with pytest.raises(LLMResponseError, match="model unloaded mid-stream"):
+        async for _ in ollama.stream_chat(
+            LLMInferenceRequest(
+                messages=[ChatMessage(role="user", content="Stream err")],
+                stream=True,
+            )
+        ):
+            pass

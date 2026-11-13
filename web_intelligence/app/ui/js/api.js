@@ -167,6 +167,211 @@ export const api = {
     });
   },
 
+  getContextCapabilities(connectionId = null, refresh = false, signal) {
+    const params = new URLSearchParams();
+    if (connectionId) params.set("connection_id", connectionId);
+    if (refresh) params.set("refresh", "true");
+    const qs = params.toString();
+    return requestJson(`/context/capabilities${qs ? `?${qs}` : ""}`, { method: "GET", signal });
+  },
+
+  getContextBudget(connectionId = null, signal) {
+    const qs = connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : "";
+    return requestJson(`/context/budget${qs}`, { method: "GET", signal });
+  },
+
+  updateContextBudget(payload, connectionId = null, signal) {
+    const qs = connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : "";
+    return requestJson(`/context/budget${qs}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  previewContext(payload, signal) {
+    return requestJson("/context/preview", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  validateContext(payload, signal) {
+    return requestJson("/context/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  getResearchContext(researchId, connectionId = null, signal) {
+    const qs = connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : "";
+    return requestJson(`/context/${encodeURIComponent(researchId)}${qs}`, {
+      method: "GET",
+      signal,
+    });
+  },
+
+  compressContext(payload, signal) {
+    return requestJson("/context/compress", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  listWorkspaceNotes(signal) {
+    return requestJson("/context/notes", { method: "GET", signal });
+  },
+
+  createWorkspaceNote(payload, signal) {
+    return requestJson("/context/notes", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  updateWorkspaceNote(noteId, payload, signal) {
+    return requestJson(`/context/notes/${encodeURIComponent(noteId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  deleteWorkspaceNote(noteId) {
+    return requestJson(`/context/notes/${encodeURIComponent(noteId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  listRegisteredModels(params = {}, signal) {
+    const qs = new URLSearchParams();
+    if (params.connection_id) qs.set("connection_id", params.connection_id);
+    if (params.only_connected) qs.set("only_connected", "true");
+    if (params.task_role) qs.set("task_role", params.task_role);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return requestJson(`/llm/registry${suffix}`, { method: "GET", signal });
+  },
+
+  registerManualModel(payload, signal) {
+    return requestJson("/llm/registry", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  updateModelTaskRoles(entryId, taskRoles, signal) {
+    const encodedPath = String(entryId)
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+    return requestJson(`/llm/registry/${encodedPath}/roles`, {
+      method: "PATCH",
+      body: JSON.stringify({ task_roles: taskRoles }),
+      signal,
+    });
+  },
+
+  generateAnswer(payload, signal) {
+    return requestJson("/generation", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  listGenerations(researchId = null, signal = undefined) {
+    const suffix = researchId ? `?research_id=${encodeURIComponent(researchId)}` : "";
+    return requestJson(`/generation${suffix}`, { method: "GET", signal });
+  },
+
+  getGeneration(generationId, signal) {
+    return requestJson(`/generation/${encodeURIComponent(generationId)}`, {
+      method: "GET",
+      signal,
+    });
+  },
+
+  cancelGeneration(generationId) {
+    return requestJson(`/generation/${encodeURIComponent(generationId)}/cancel`, {
+      method: "POST",
+    });
+  },
+
+  async streamGeneration(payload, { signal, onEvent } = {}) {
+    const resp = await fetch(`${API_BASE}/generation/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ ...payload, stream: true }),
+      signal,
+    });
+
+    if (!resp.ok) {
+      let detail = `${resp.status} ${resp.statusText}`;
+      try {
+        const errBody = await resp.json();
+        if (errBody?.detail) detail = String(errBody.detail);
+      } catch {
+        // ignore parse failure
+      }
+      throw new ApiError(detail, resp.status);
+    }
+
+    if (!resp.body) {
+      throw new ApiError("Generation streaming response body unavailable.", 502);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, "");
+        if (!line) {
+          currentEvent = "message";
+          continue;
+        }
+        if (line.startsWith("event:")) {
+          currentEvent = line.slice(6).trim();
+          continue;
+        }
+        if (!line.startsWith("data:")) continue;
+        const dataStr = line.slice(5).trim();
+        if (dataStr === "[DONE]") {
+          return;
+        }
+        let parsed = null;
+        try {
+          parsed = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
+        if (parsed && !parsed.event) {
+          parsed.event = currentEvent;
+        }
+        if (onEvent && parsed) {
+          onEvent(parsed);
+        }
+      }
+    }
+  },
+
   async streamLlmTestPrompt(connectionId, payload, { signal, onChunk } = {}) {
     const resp = await fetch(`${API_BASE}/llm/connections/${encodeURIComponent(connectionId)}/prompt`, {
       method: "POST",

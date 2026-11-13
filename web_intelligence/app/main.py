@@ -11,6 +11,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from web_intelligence.app.api.routes.agent import router as agent_router
+from web_intelligence.app.api.routes.context import router as context_router
+from web_intelligence.app.api.routes.generation import (
+    registry_router as model_registry_router,
+    router as generation_router,
+)
 from web_intelligence.app.api.routes.health import router as health_router
 from web_intelligence.app.api.routes.llm import router as llm_router
 from web_intelligence.app.api.routes.research import router as research_router
@@ -51,7 +57,11 @@ def create_app(
         purged = await container.repository.purge_expired_runs()
         if purged > 0:
             logger.info("Purged expired research runs", extra={"extra_data": {"count": purged}})
-        yield
+        try:
+            yield
+        finally:
+            if container.agent_orchestrator is not None:
+                await container.agent_orchestrator.shutdown()
 
     application = FastAPI(
         title=runtime_settings.app_name,
@@ -74,6 +84,10 @@ def create_app(
 
     application.include_router(health_router)
     application.include_router(llm_router)
+    application.include_router(model_registry_router)
+    application.include_router(context_router)
+    application.include_router(generation_router)
+    application.include_router(agent_router)
     application.include_router(search_router)
     application.include_router(research_router)
     application.include_router(sources_router)

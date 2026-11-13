@@ -51,6 +51,10 @@ class LLMUnsupportedFeatureError(LLMError):
     """Raised when a requested capability is not supported by the target adapter/model."""
 
 
+class LLMCancelledError(LLMError):
+    """Raised when an active inference request is cancelled before completion."""
+
+
 def extract_json_payload(raw_text: str) -> dict[str, Any] | list[Any] | None:
     """Best-effort parser extracting a JSON object or array from model output."""
     text = raw_text.strip()
@@ -259,3 +263,13 @@ class UniversalLocalModelAdapter(LocalModelAdapter, ABC):
     @staticmethod
     def _elapsed_ms(started_at: float) -> int:
         return max(0, int((time.monotonic() - started_at) * 1000))
+
+    @staticmethod
+    def _normalize_stop_sequences(stop: list[str] | None) -> list[str]:
+        if not stop:
+            return []
+        normalized: list[str] = []
+        for item in stop:
+            if isinstance(item, str) and item != "" and item not in normalized:
+                normalized.append(item)
+        return normalized

@@ -4,6 +4,7 @@
  */
 
 import { ApiError, api, pollResearchUntilComplete } from "./api.js";
+import { resolveSelectedModelEntry } from "./components/generation_workspace.js";
 import { createInspector } from "./components/inspector.js";
 import {
   createInitialLlmDraft,
@@ -28,6 +29,7 @@ const btnConfirmDelete = document.getElementById("btn-confirm-delete");
 const settingsDialogEl = document.getElementById("settings-dialog");
 
 let activeRunAbortController = null;
+let activeGenerationAbortController = null;
 let sourceDetailAbortController = null;
 
 function announce(message) {
@@ -99,6 +101,12 @@ async function handleSelectRun(researchId) {
     selectedSourceDetail: null,
     sourceDetailError: null,
     highlightedEvidenceId: null,
+    generationResult: null,
+    generationRuns: [],
+    generationRunning: false,
+    generationActiveId: null,
+    generationStreamContent: "",
+    generationError: null,
   });
 
   try {
@@ -132,6 +140,8 @@ async function handleSelectRun(researchId) {
       });
       await refreshSidebarRuns();
     } else {
+      loadContextPreviewForRun(researchId);
+      loadGenerationsForRun(researchId);
       announce(`Loaded research run with ${pkg.sources?.length ?? 0} sources.`);
     }
   } catch (err) {
@@ -244,7 +254,11 @@ async function handleSubmitQuery(rawQuery) {
         finalStatus === "failed" ? finalPkg.error_message || "Research execution failed." : null,
     });
 
-    await refreshSidebarRuns();
+    await Promise.allSettled([
+      refreshSidebarRuns(),
+      finalStatus === "completed" ? loadContextPreviewForRun(finalPkg.research_id) : Promise.resolve(),
+      finalStatus === "completed" ? loadGenerationsForRun(finalPkg.research_id) : Promise.resolve(),
+    ]);
     announce(
       finalStatus === "failed"
         ? "Research task failed."
@@ -282,6 +296,7 @@ function handleCancelRun() {
 
 function handleNewResearch() {
   handleCancelRun();
+  handleStopGeneration();
   store.setState({
     mode: "research",
     compactPane: "workspace",
@@ -294,6 +309,20 @@ function handleNewResearch() {
     selectedSourceDetail: null,
     sourceDetailError: null,
     highlightedEvidenceId: null,
+    contextPreview: null,
+    contextCompressionPreview: null,
+    contextError: null,
+    generationResult: null,
+    generationRuns: [],
+    generationRunning: false,
+    generationActiveId: null,
+    generationStreamContent: "",
+    generationStreamOutline: [],
+    generationStreamSections: [],
+    generationStreamCurrentSection: null,
+    generationStreamWarnings: [],
+    generationStreamCitations: [],
+    generationError: null,
   });
   workspace.setInputValue("");
   workspace.focusInput();
@@ -474,7 +503,10 @@ if (settingsRootEl) {
   settingsRootEl.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-llm-action]");
     if (btn && store.getState().settingsTab === "model") {
-      handleLlmActionClick(btn, { store, draft: llmDraft, rootEl: settingsRootEl });
+      Promise.resolve(handleLlmActionClick(btn, { store, draft: llmDraft, rootEl: settingsRootEl }))
+        .finally(() => {
+          refreshModelRegistry();
+        });
     }
   });
   settingsRootEl.addEventListener("input", (event) => {
@@ -645,7 +677,358 @@ const workspace = createWorkspace({
     workspace.setInputValue(query);
     handleSubmitQuery(query);
   },
+  onStartGeneration: () => handleStartGeneration(),
+  onStopGeneration: () => handleStopGeneration(),
+  onOpenGenInspector: () => {
+    store.updatePrefs({ inspectorCollapsed: false });
+    store.setState({ inspectorTab: "generation", compactPane: "inspector" });
+    refreshModelRegistry();
+  },
 });
+
+async function refreshContextMetadata() {
+  try {
+    const [capsRes, budgetRes, notesRes] = await Promise.all([
+      api.getContextCapabilities(),
+      api.getContextBudget(),
+      api.listWorkspaceNotes(),
+    ]);
+    store.setState({
+      contextCapabilities: capsRes?.capabilities || null,
+      contextBudget: budgetRes || null,
+      contextNotes: Array.isArray(notesRes) ? notesRes : [],
+      contextError: null,
+    });
+  } catch (err) {
+    store.setState({ contextError: err.message });
+  }
+}
+
+async function loadContextPreviewForRun(researchId) {
+  if (!researchId) return;
+  store.setState({ contextLoading: true, contextError: null });
+  try {
+    const [previewRes, budgetRes] = await Promise.all([
+      api.getResearchContext(researchId),
+      api.getContextBudget(),
+    ]);
+    store.setState({
+      contextPreview: previewRes,
+      contextBudget: budgetRes || store.getState().contextBudget,
+      contextCapabilities: previewRes?.context_package?.capabilities || store.getState().contextCapabilities,
+      contextCompressionPreview: null,
+      contextLoading: false,
+      contextError: null,
+    });
+  } catch (err) {
+    store.setState({ contextLoading: false, contextError: err.message });
+  }
+}
+
+async function handleApplyContextBudget(payload) {
+  store.setState({ contextLoading: true, contextError: null });
+  try {
+    const budgetRes = await api.updateContextBudget(payload);
+    store.setState({
+      contextBudget: budgetRes,
+      contextCapabilities: budgetRes.capabilities,
+      contextLoading: false,
+    });
+    const st = store.getState();
+    if (st.activeResearchId) {
+      await loadContextPreviewForRun(st.activeResearchId);
+    } else if (st.queryDraft?.trim()) {
+      await handlePreviewContext({});
+    }
+    announce("Updated context budget allocation.");
+  } catch (err) {
+    store.setState({ contextLoading: false, contextError: err.message });
+  }
+}
+
+async function handlePreviewContext(overrides = {}) {
+  const st = store.getState();
+  const researchId = st.activeResearchId || st.researchPackage?.research_id || null;
+  const question = st.researchPackage?.original_query || st.queryDraft?.trim() || "";
+  if (!researchId && !question) return;
+
+  store.setState({ contextLoading: true, contextError: null });
+  try {
+    const payload = {
+      ...(researchId ? { research_id: researchId } : { question }),
+      ...(overrides.profile ? { profile: overrides.profile } : {}),
+      ...(overrides.compression_strategy ? { compression_strategy: overrides.compression_strategy } : {}),
+      ...(overrides.user_context_limit ? { user_context_limit: overrides.user_context_limit } : {}),
+      ...(overrides.output_reservation_tokens
+        ? { output_reservation_tokens: overrides.output_reservation_tokens }
+        : {}),
+    };
+    const previewRes = await api.previewContext(payload);
+    store.setState({
+      contextPreview: previewRes,
+      contextCapabilities: previewRes?.context_package?.capabilities || st.contextCapabilities,
+      contextCompressionPreview: null,
+      contextLoading: false,
+      contextError: null,
+    });
+  } catch (err) {
+    store.setState({ contextLoading: false, contextError: err.message });
+  }
+}
+
+async function handleCompressContext({ strategy } = {}) {
+  const st = store.getState();
+  const researchId = st.activeResearchId || st.researchPackage?.research_id;
+  if (!researchId) return;
+  store.setState({ contextLoading: true, contextError: null });
+  try {
+    const compRes = await api.compressContext({
+      research_id: researchId,
+      strategy: strategy || "extractive",
+    });
+    store.setState({
+      contextCompressionPreview: compRes,
+      contextLoading: false,
+      contextError: null,
+    });
+  } catch (err) {
+    store.setState({ contextLoading: false, contextError: err.message });
+  }
+}
+
+async function handleAddWorkspaceNote({ title, content }) {
+  try {
+    await api.createWorkspaceNote({ title, content });
+    const notes = await api.listWorkspaceNotes();
+    store.setState({ contextNotes: Array.isArray(notes) ? notes : [], contextError: null });
+    const st = store.getState();
+    if (st.activeResearchId) await loadContextPreviewForRun(st.activeResearchId);
+  } catch (err) {
+    store.setState({ contextError: err.message });
+  }
+}
+
+async function handleToggleWorkspaceNote(noteId, enabled) {
+  try {
+    await api.updateWorkspaceNote(noteId, { enabled });
+    const notes = await api.listWorkspaceNotes();
+    store.setState({ contextNotes: Array.isArray(notes) ? notes : [], contextError: null });
+    const st = store.getState();
+    if (st.activeResearchId) await loadContextPreviewForRun(st.activeResearchId);
+  } catch (err) {
+    store.setState({ contextError: err.message });
+  }
+}
+
+async function handleDeleteWorkspaceNote(noteId) {
+  try {
+    await api.deleteWorkspaceNote(noteId);
+    const notes = await api.listWorkspaceNotes();
+    store.setState({ contextNotes: Array.isArray(notes) ? notes : [], contextError: null });
+    const st = store.getState();
+    if (st.activeResearchId) await loadContextPreviewForRun(st.activeResearchId);
+  } catch (err) {
+    store.setState({ contextError: err.message });
+  }
+}
+
+async function refreshModelRegistry() {
+  try {
+    const entries = await api.listRegisteredModels();
+    store.setState({ modelRegistry: Array.isArray(entries) ? entries : [] });
+  } catch {
+    // Ignore transient registry refresh errors
+  }
+}
+
+async function loadGenerationsForRun(researchId) {
+  if (!researchId) return;
+  try {
+    const runs = await api.listGenerations(researchId);
+    const list = Array.isArray(runs) ? runs : [];
+    const st = store.getState();
+    if ((st.activeResearchId || st.researchPackage?.research_id) !== researchId) {
+      return;
+    }
+    store.setState({
+      generationRuns: list,
+      generationResult: list.length > 0 ? list[0] : null,
+    });
+  } catch {
+    // Preserve UI state cleanly on history fetch miss
+  }
+}
+
+async function handleStartGeneration() {
+  const st = store.getState();
+  const researchId = st.activeResearchId || st.researchPackage?.research_id;
+  if (!researchId || st.generationRunning) return;
+
+  if (activeGenerationAbortController) {
+    activeGenerationAbortController.abort();
+  }
+  activeGenerationAbortController = new AbortController();
+  const { signal } = activeGenerationAbortController;
+
+  const selectedEntry = resolveSelectedModelEntry(st);
+  const prefs = st.prefs;
+  const maxOut = Number.parseInt(String(prefs.genMaxOutputTokens || ""), 10);
+  const payload = {
+    research_id: researchId,
+    ...(selectedEntry
+      ? { connection_id: selectedEntry.connection_id, model_id: selectedEntry.model_id }
+      : {}),
+    template_type: prefs.genTemplate || "detailed_explanation",
+    output_format: prefs.genFormat || "markdown",
+    answer_length: prefs.genLength || "medium",
+    generation_mode: prefs.genMode || "standard",
+    temperature: Number.isFinite(Number(prefs.genTemperature)) ? Number(prefs.genTemperature) : 0.2,
+    ...(Number.isFinite(maxOut) && maxOut >= 16 ? { max_output_tokens: maxOut } : {}),
+    stream: Boolean(prefs.genStream),
+  };
+
+  store.setState({
+    generationRunning: true,
+    generationActiveId: null,
+    generationStreamContent: "",
+    generationStreamOutline: [],
+    generationStreamSections: [],
+    generationStreamCurrentSection: null,
+    generationStreamWarnings: [],
+    generationStreamCitations: [],
+    generationStreamSourceMap: {},
+    generationStreamContextStats: null,
+    generationError: null,
+  });
+  announce("Starting local LLM answer generation.");
+
+  try {
+    if (!payload.stream) {
+      const result = await api.generateAnswer(payload, signal);
+      store.setState({
+        generationRunning: false,
+        generationActiveId: null,
+        generationResult: result,
+        generationError: null,
+      });
+      await loadGenerationsForRun(researchId);
+      announce("Local answer generation completed.");
+      return;
+    }
+
+    await api.streamGeneration(payload, {
+      signal,
+      onEvent: (ev) => {
+        const cur = store.getState();
+        if (ev.event === "start") {
+          store.setState({
+            generationActiveId: ev.generation_id || null,
+            generationStreamSourceMap: ev.source_map || {},
+            generationStreamContextStats: ev.context_stats || null,
+          });
+        } else if (ev.event === "outline") {
+          store.setState({
+            generationStreamOutline: Array.isArray(ev.outline) ? ev.outline : [],
+          });
+        } else if (ev.event === "section_start") {
+          store.setState({
+            generationStreamCurrentSection: {
+              section_id: ev.section_id,
+              order: ev.order,
+              title: ev.title,
+            },
+          });
+        } else if (ev.event === "section_complete" && ev.section) {
+          store.setState({
+            generationStreamSections: [...(cur.generationStreamSections || []), ev.section],
+          });
+        } else if (ev.event === "delta" && typeof ev.delta === "string") {
+          store.setState({
+            generationStreamContent: (cur.generationStreamContent || "") + ev.delta,
+          });
+        } else if (ev.event === "warning" && ev.warning) {
+          store.setState({
+            generationStreamWarnings: [...(cur.generationStreamWarnings || []), ev.warning],
+          });
+        } else if (ev.event === "citation") {
+          store.setState({
+            generationStreamCitations: Array.isArray(ev.citations) ? ev.citations : [],
+          });
+        } else if (ev.event === "complete" || ev.event === "cancelled") {
+          store.setState({
+            generationRunning: false,
+            generationActiveId: null,
+            generationStreamCurrentSection: null,
+            generationResult: ev.generation || null,
+            generationError: null,
+          });
+          announce(
+            ev.event === "cancelled"
+              ? "Generation stopped cleanly with partial output retained."
+              : "Answer generation complete."
+          );
+        } else if (ev.event === "error") {
+          store.setState({
+            generationRunning: false,
+            generationActiveId: null,
+            generationStreamCurrentSection: null,
+            generationResult: ev.generation || cur.generationResult,
+            generationError: ev.detail || "Generation failed.",
+          });
+        }
+      },
+    });
+    if (store.getState().generationRunning) {
+      store.setState({ generationRunning: false, generationActiveId: null });
+    }
+    await loadGenerationsForRun(researchId);
+  } catch (err) {
+    if (err.name === "AbortError") {
+      store.setState({
+        generationRunning: false,
+        generationActiveId: null,
+        generationStreamCurrentSection: null,
+      });
+      await loadGenerationsForRun(researchId);
+      return;
+    }
+    store.setState({
+      generationRunning: false,
+      generationActiveId: null,
+      generationStreamCurrentSection: null,
+      generationError: err instanceof ApiError ? err.message : err.message || "Generation failed.",
+    });
+    announce(`Generation error: ${err.message}`);
+  } finally {
+    if (activeGenerationAbortController?.signal === signal) {
+      activeGenerationAbortController = null;
+    }
+  }
+}
+
+async function handleStopGeneration() {
+  const st = store.getState();
+  const activeId = st.generationActiveId;
+  if (activeId) {
+    try {
+      const stopped = await api.cancelGeneration(activeId);
+      if (stopped && stopped.content) {
+        store.setState({ generationResult: stopped });
+      }
+      announce("Cancellation requested.");
+    } catch {
+      if (activeGenerationAbortController) {
+        activeGenerationAbortController.abort();
+      }
+    }
+    return;
+  }
+  if (activeGenerationAbortController) {
+    activeGenerationAbortController.abort();
+    activeGenerationAbortController = null;
+  }
+  store.setState({ generationRunning: false, generationActiveId: null });
+}
 
 const inspector = createInspector({
   store,
@@ -659,6 +1042,42 @@ const inspector = createInspector({
   onFilterPassages: (filter) => {
     store.setState({ passageFilter: filter });
   },
+  onOpenContextTab: () => {
+    refreshContextMetadata();
+    const st = store.getState();
+    if (st.activeResearchId) {
+      loadContextPreviewForRun(st.activeResearchId);
+    }
+  },
+  onOpenGenerationTab: () => {
+    refreshModelRegistry();
+    const st = store.getState();
+    if (st.activeResearchId) {
+      loadGenerationsForRun(st.activeResearchId);
+    }
+  },
+  onRefreshModelRegistry: refreshModelRegistry,
+  onSelectGenerationRun: async (generationId) => {
+    const existing = (store.getState().generationRuns || []).find(
+      (r) => r.generation_id === generationId
+    );
+    if (existing) {
+      store.setState({ generationResult: existing });
+      return;
+    }
+    try {
+      const loaded = await api.getGeneration(generationId);
+      if (loaded) store.setState({ generationResult: loaded });
+    } catch {
+      // Ignore transient fetch failure
+    }
+  },
+  onApplyContextBudget: handleApplyContextBudget,
+  onPreviewContext: handlePreviewContext,
+  onCompressContext: handleCompressContext,
+  onAddWorkspaceNote: handleAddWorkspaceNote,
+  onToggleWorkspaceNote: handleToggleWorkspaceNote,
+  onDeleteWorkspaceNote: handleDeleteWorkspaceNote,
 });
 
 function renderAll(state) {
@@ -678,12 +1097,16 @@ initSplitResizers();
 renderAll(store.getState());
 
 async function bootstrap() {
-  const [healthRes, configRes, runsRes, presetsRes, llmConnsRes] = await Promise.allSettled([
+  const [healthRes, configRes, runsRes, presetsRes, llmConnsRes, ctxCapsRes, ctxBudgetRes, ctxNotesRes, regModelsRes] = await Promise.allSettled([
     api.getHealth(),
     api.getConfig(),
     api.listResearchRuns(),
     api.listLlmPresets(),
     api.listLlmConnections(),
+    api.getContextCapabilities(),
+    api.getContextBudget(),
+    api.listWorkspaceNotes(),
+    api.listRegisteredModels(),
   ]);
 
   const patch = {};
@@ -713,6 +1136,22 @@ async function bootstrap() {
 
   if (llmConnsRes.status === "fulfilled" && Array.isArray(llmConnsRes.value)) {
     patch.llmConnections = llmConnsRes.value;
+  }
+
+  if (ctxCapsRes.status === "fulfilled" && ctxCapsRes.value?.capabilities) {
+    patch.contextCapabilities = ctxCapsRes.value.capabilities;
+  }
+
+  if (ctxBudgetRes.status === "fulfilled" && ctxBudgetRes.value) {
+    patch.contextBudget = ctxBudgetRes.value;
+  }
+
+  if (ctxNotesRes.status === "fulfilled" && Array.isArray(ctxNotesRes.value)) {
+    patch.contextNotes = ctxNotesRes.value;
+  }
+
+  if (regModelsRes.status === "fulfilled" && Array.isArray(regModelsRes.value)) {
+    patch.modelRegistry = regModelsRes.value;
   }
 
   patch.backendError = errors.length && !patch.health ? errors[0] : null;

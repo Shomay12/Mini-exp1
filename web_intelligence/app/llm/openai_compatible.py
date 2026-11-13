@@ -342,6 +342,9 @@ class OpenAICompatibleAdapter(UniversalLocalModelAdapter):
             "max_tokens": request.max_tokens or self.config.max_output_tokens,
             "stream": stream,
         }
+        stop_sequences = self._normalize_stop_sequences(request.stop)
+        if stop_sequences:
+            payload["stop"] = stop_sequences
         if request.response_format == "json_object":
             payload["response_format"] = {"type": "json_object"}
         if request.tools:
@@ -364,7 +367,7 @@ class OpenAICompatibleAdapter(UniversalLocalModelAdapter):
         chat_url = self._chat_url()
 
         try:
-            async with await self._open_client() as client:
+            async with await self._open_client(timeout_override=request.timeout_seconds) as client:
                 response = await client.post(chat_url, json=payload)
                 self._check_response_status(response, action="Chat completion")
                 data = response.json()
@@ -449,7 +452,7 @@ class OpenAICompatibleAdapter(UniversalLocalModelAdapter):
         chat_url = self._chat_url()
 
         try:
-            async with await self._open_client() as client:
+            async with await self._open_client(timeout_override=request.timeout_seconds) as client:
                 async with client.stream("POST", chat_url, json=payload) as response:
                     self._check_response_status(response, action="Streaming chat completion")
                     emitted_done = False
@@ -472,6 +475,16 @@ class OpenAICompatibleAdapter(UniversalLocalModelAdapter):
                             continue
                         if not isinstance(event, dict):
                             continue
+                        if event.get("error") is not None:
+                            err_val = event["error"]
+                            err_msg = (
+                                err_val.get("message")
+                                if isinstance(err_val, dict)
+                                else str(err_val)
+                            )
+                            raise LLMResponseError(
+                                f"Streaming inference error: {self._safe_error(err_msg or 'server error')}"
+                            )
 
                         choices = event.get("choices")
                         delta_text = ""

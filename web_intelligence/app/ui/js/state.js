@@ -16,6 +16,14 @@ const DEFAULT_PREFS = {
   chunkTargetTokens: 180,
   useLocalLlm: true,
   selectedProviders: [], // empty = backend default router
+  genTemplate: "detailed_explanation",
+  genFormat: "markdown",
+  genLength: "medium",
+  genMode: "standard",
+  genTemperature: 0.2,
+  genMaxOutputTokens: "",
+  genStream: true,
+  genSelectedRegistryEntryId: "",
 };
 
 function loadPrefs() {
@@ -68,12 +76,22 @@ export function createStore() {
     workspaceError: null,
 
     // Inspector Data
-    inspectorTab: "sources", // "sources" | "passages" | "conflicts" | "audit"
+    inspectorTab: "sources", // "sources" | "passages" | "conflicts" | "context" | "audit"
     passageFilter: "all", // "all" | "corroborated" | "single_source" | "contested"
     selectedSourceId: null,
     selectedSourceDetail: null,
     sourceDetailLoading: false,
     sourceDetailError: null,
+
+    // Stage 5 Adaptive Context Inspector Data
+    contextCapabilities: null,
+    contextBudget: null,
+    contextPreview: null,
+    contextCompressionPreview: null,
+    contextNotes: [],
+    contextLoading: false,
+    contextError: null,
+    contextShowFormattedPreview: false,
 
     // UI Modal State
     settingsTab: "providers", // "providers" | "privacy" | "budget" | "model"
@@ -91,6 +109,24 @@ export function createStore() {
     llmPromptRunning: false,
     llmPromptError: null,
     llmPromptMeta: null,
+
+    // Stage 6 Universal Local LLM Generation & ModelRegistry State
+    modelRegistry: [],
+    generationResult: null,
+    generationRuns: [],
+    generationRunning: false,
+    generationActiveId: null,
+    generationStreamContent: "",
+    generationStreamOutline: [],
+    generationStreamSections: [],
+    generationStreamCurrentSection: null,
+    generationStreamWarnings: [],
+    generationStreamCitations: [],
+    generationStreamSourceMap: {},
+    generationStreamContextStats: null,
+    generationError: null,
+    generationExpandedSources: false,
+    generationOptionsOpen: false,
   };
 
   const listeners = new Set();

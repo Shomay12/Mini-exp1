@@ -1295,3 +1295,341 @@ dialog.app-sheet::backdrop {
   flex-direction: column;
   gap: 2px;
 }
+
+/* --- Stage 5 Context Inspector Controls -------------------------------- */
+.ctx-meter {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+  margin: 4px 0 8px;
+}
+
+.ctx-meter__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--transition-fast);
+}
+
+.ctx-meter__fill.is-high {
+  background: var(--tone-negative, #c9302c);
+}
+
+.ctx-controls-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-canvas);
+}
+
+.ctx-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+}
+
+.ctx-control-row label {
+  flex: 1 1 auto;
+}
+
+.ctx-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.ctx-issue {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ctx-issue--error {
+  border-color: rgba(201, 48, 44, 0.35);
+  background: rgba(201, 48, 44, 0.08);
+  color: var(--text-primary);
+}
+
+.ctx-issue--warning {
+  border-color: rgba(217, 119, 6, 0.35);
+  background: rgba(217, 119, 6, 0.08);
+  color: var(--text-primary);
+}
+
+.ctx-preview-pre {
+  margin: 6px 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-canvas);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* --- Stage 6 Research Answer Generation & Citation Chips --- */
+.generation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+}
+
+.gen-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gen-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gen-model-select {
+  max-width: 260px;
+}
+
+.gen-model-chip {
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-canvas);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.generation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-canvas);
+}
+
+.btn--destructive-outline {
+  color: var(--tone-negative, #c9302c);
+  border-color: rgba(201, 48, 44, 0.45);
+  background: rgba(201, 48, 44, 0.06);
+}
+
+.btn--destructive-outline:hover:not(:disabled) {
+  background: rgba(201, 48, 44, 0.14);
+}
+
+.btn--sm {
+  padding: 2px 8px;
+  font-size: var(--text-caption);
+}
+
+.gen-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gen-progress__bar {
+  position: relative;
+  height: 3px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.gen-progress__bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -40%;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: gen-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes gen-indeterminate {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.gen-progress__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.generation-answer {
+  max-width: 72ch;
+  font-size: var(--text-reading);
+  line-height: 1.65;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gen-para {
+  margin: 0;
+}
+
+.gen-h1,
+.gen-h2,
+.gen-h3 {
+  margin-top: 6px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.gen-h1 {
+  font-size: 1.125rem;
+}
+
+.gen-h2 {
+  font-size: 1.025rem;
+}
+
+.gen-h3 {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.gen-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gen-json-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-canvas);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.gen-inline-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.14);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.citation-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-weight: 600;
+  vertical-align: baseline;
+  line-height: 1.45;
+  text-decoration: none;
+}
+
+.citation-chip:hover {
+  background: rgba(0, 122, 255, 0.22);
+}
+
+.citation-chip--unknown {
+  background: rgba(201, 48, 44, 0.12);
+  color: var(--tone-negative, #c9302c);
+}
+
+.inline-action-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.inline-action-link:hover {
+  text-decoration: underline;
+}
+
+.gen-sources-block {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.gen-sources-drawer {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gen-source-item {
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-canvas);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gen-source-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.gen-cap-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.gen-footnote {
+  margin: 2px 0 0;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+  line-height: 1.45;
+}
