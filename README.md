@@ -37,3 +37,4 @@ uvicorn web_intelligence.app.main:app --reload
 Open `http://127.0.0.1:8000` in your browser for the research workspace UI, or `http://127.0.0.1:8000/docs` for OpenAPI documentation.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, data-flow diagrams, API contracts, database schema, and privacy boundaries.
+# Mini-exp1
