@@ -27,6 +27,15 @@ class SecretRedactingFilter(logging.Filter):
         """Replace tracked secret literals."""
         self._secrets = [s for s in secrets if s]
 
+    def add_secrets(self, secrets: list[str]) -> None:
+        """Append non-empty runtime secrets without overwriting existing entries."""
+        existing = set(self._secrets)
+        for secret in secrets:
+            cleaned = (secret or "").strip()
+            if cleaned and cleaned not in existing:
+                self._secrets.append(cleaned)
+                existing.add(cleaned)
+
     def _redact(self, text: str) -> str:
         masked = _TOKEN_PATTERN.sub("[REDACTED_SECRET]", text)
         for secret in self._secrets:
@@ -77,9 +86,32 @@ class StructuredJsonFormatter(logging.Formatter):
 _SECRET_FILTER = SecretRedactingFilter()
 
 
+def register_secret(secret: str | None) -> None:
+    """Register a runtime secret (e.g. an LLM endpoint API key) for redaction."""
+    if secret and secret.strip():
+        _SECRET_FILTER.add_secrets([secret.strip()])
+
+
+def register_secrets(secrets: list[str]) -> None:
+    """Register multiple runtime secrets for log redaction."""
+    _SECRET_FILTER.add_secrets(secrets)
+
+
+def redact_text(text: str, extra_secrets: list[str] | None = None) -> str:
+    """Redact registered secrets, bearer tokens, and optional transient secrets from text."""
+    if not text:
+        return text
+    masked = _SECRET_FILTER._redact(text)
+    for secret in extra_secrets or []:
+        cleaned = (secret or "").strip()
+        if cleaned and cleaned in masked:
+            masked = masked.replace(cleaned, "[REDACTED_SECRET]")
+    return masked
+
+
 def configure_logging(level: str = "INFO", secrets: list[str] | None = None) -> None:
     """Configure root logger with structured JSON formatting and secret redaction."""
-    _SECRET_FILTER.update_secrets(secrets or [])
+    _SECRET_FILTER.add_secrets(secrets or [])
     root = logging.getLogger("web_intelligence")
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     root.handlers.clear()

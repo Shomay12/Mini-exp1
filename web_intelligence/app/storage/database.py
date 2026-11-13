@@ -88,9 +88,34 @@ CREATE TABLE IF NOT EXISTS claim_conflicts (
     FOREIGN KEY (research_id) REFERENCES research_runs(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS llm_connections (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    preset TEXT,
+    base_url TEXT NOT NULL,
+    api_endpoint TEXT,
+    api_key TEXT,
+    model TEXT NOT NULL,
+    context_length INTEGER NOT NULL,
+    max_output_tokens INTEGER NOT NULL,
+    request_timeout_seconds REAL NOT NULL,
+    streaming INTEGER NOT NULL,
+    allow_remote_endpoint INTEGER NOT NULL,
+    approved_by_user INTEGER NOT NULL,
+    is_active INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    last_error TEXT,
+    last_checked_at TEXT,
+    capabilities_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sources_research ON sources(research_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_research ON evidence_items(research_id);
 CREATE INDEX IF NOT EXISTS idx_runs_expires ON research_runs(expires_at);
+CREATE INDEX IF NOT EXISTS idx_llm_active ON llm_connections(is_active);
 """
 
 

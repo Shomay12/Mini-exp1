@@ -11,13 +11,16 @@ from web_intelligence.app.schemas.evidence import ClaimConflict, EvidenceItem, E
 from web_intelligence.app.schemas.research import QueryPlan, ResearchPackage
 
 
-class ModelCapabilities(BaseModel):
+from web_intelligence.app.schemas.llm import ModelCapabilities as _LLMModelCapabilities
+
+
+class ModelCapabilities(_LLMModelCapabilities):
     """Hardware and context characteristics of a local small language model."""
 
-    model_name: str
+    model_name: str = ""
     backend: str = "local"
     max_context_tokens: int = Field(default=8192, ge=512)
-    recommended_output_tokens: int = Field(default=1024, ge=128)
+    recommended_output_tokens: int = Field(default=1024, ge=64)
     supports_json_mode: bool = False
     supports_tool_calling: bool = False
 
