@@ -77,3 +77,28 @@
 ### Verification
 - Verified Stage 6 unit, engine, and API integration suites (`test_llm_adapters.py`, `test_model_registry.py`, `test_prompt_compiler_and_citations.py`, `test_generation_engine.py`, `test_generation_api.py`) plus all prior Stages 1–5 suites: `109 passed in 3.97s` cleanly via `.venv/bin/pytest -v --ignore=web_intelligence/tests/test_agent_unit.py --ignore=web_intelligence/tests/test_agent_integration_and_failures.py` (two pre-existing untracked draft `test_agent_*` files for future agentic execution were left excluded and untouched).
 - Verified JavaScript syntax cleanly with `node --check` across all 7 edited/added Stage 6 UI modules and executed CLI `web_intelligence.scripts.demo_research`.
+
+---
+
+## 2026-11-13 — Stage 7: Agentic Research Orchestration Engine
+
+### Architecture & Implementation
+- **Agent Orchestration Package (`web_intelligence/app/agent/`)**: Completed and verified 14 modular components + `__init__.py` (`models.py`, `orchestrator.py`, `research_planner.py`, `task_manager.py`, `execution_engine.py`, `tool_registry.py`, `tool_selector.py`, `observation_processor.py`, `evidence_evaluator.py`, `gap_analyzer.py`, `stopping_policy.py`, `execution_budget.py`, `research_state.py`, `research_memory.py`, `research_trace.py`).
+- **SQLite Persistence & FastAPI Routes**: Wired `agent_sessions` and `agent_trace_entries` tables (`storage/database.py`, `storage/repositories.py`) and mounted `/api/v1/agent/*` endpoints (`api/routes/agent.py`, `main.py`, `dependencies.py`) supporting asynchronous research runs (`202 Accepted`), live session/plan/tasks/trace/gaps inspection, validated `PUT /plan` edits, pause/resume/cancel lifecycle actions, and explicit approval gating (`/approve`).
+- **macOS Workbench UI & Settings Fix (`web_intelligence/app/ui/`)**:
+  - Created `js/components/agent_workspace.js` (**Agent** mode view with composer depth/iteration/privacy/approval controls, live budget telemetry, Pause/Resume/Cancel triggers, approval gate prompt cards, editable pending plan tasks, evidence verdicts, open gaps, preserved conflicts, and `[S#]` cited synthesis via `renderSafeStructuredBody`).
+  - Created `js/components/agent_trace.js` (**Trace** Inspector tab rendering chronological trace entries and registered `ToolRegistry` descriptors).
+  - Updated `index.html`, `formatters.js`, `state.js`, `api.js`, `toolbar.js`, `sidebar.js`, `inspector.js`, `generation_workspace.js`, `app.js`, and `styles/components.css` (`derivePackageFromAgentSession` bridges Agent runs cleanly into existing Sources/Passages/Claims/Conflicts/Context Inspector panes).
+  - Restored `{ id: "model", label: "Local Model" }` pane registration in `js/components/settings_sheet.js` so Local LLM settings remain accessible.
+- **Documentation & CLI Demonstration**: Created `docs/AGENT_ORCHESTRATION.md`, `docs/RESEARCH_LOOP.md`, `docs/TOOL_REGISTRY.md`, and `docs/RESEARCH_TRACE.md`, updated `README.md` & `ARCHITECTURE.md`, and added `web_intelligence/scripts/demo_agent_research.py` for offline multi-iteration demonstration using `DEFAULT_FIXTURES`.
+
+### Integration Issues Resolved During Verification
+1. **Offline Fixture `url_retrieve` & Schema Domain**: Updated `ToolRegistry.is_tool_available` so `url_retrieve` works alongside `web_search` in pure-mock offline fixture mode (still enforcing `require_approval_for_remote_urls` when external search is active) and populated `domain=urlparse(url).netloc.lower()` in `_handle_url_retrieve` for `NormalizedSearchResult`.
+2. **Synchronous Stage 4 Call Alignment**: Fixed `ObservationProcessor` calling `RuleBasedClaimExtractor.extract_claims` synchronously (no erroneous `await`).
+3. **Post-Approval Loop & Immediate Cancel State Guards**: Extracted shared `AgentResearchOrchestrator._evaluate_gaps_and_stopping(...)` helper so post-approval resume runs identical iteration accounting, evaluation, gap detection, and stopping checks, and guarded `cancel_session` / `run_session` / `_synthesize_and_complete` against illegal `CANCELLED -> SYNTHESIZING` transitions.
+4. **Fixture DNS Resolver & SSE Test Transport**: Supplied `fixture_dns_resolver` cleanly alongside LLM resolver in integration tests (`RobotsTxtManager` isolation) and SSE framing in mock LLM test transport.
+
+### Verification
+- Full pytest suite (`.venv/bin/pytest web_intelligence/tests -v`): all 118 unit and integration tests across Stages 1–7 pass.
+- Syntax check (`node --check`) passes across all UI JavaScript files.
+- Executed `web_intelligence.scripts.demo_agent_research` cleanly across 3 autonomous iterations with 4 retained sources, 1 deduplicated mirror rejected, 2 conflicts preserved, 53 chronological trace entries, and cited report synthesis.
