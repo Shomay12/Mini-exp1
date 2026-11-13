@@ -9,6 +9,8 @@ import httpx
 
 from web_intelligence.app.core.config import Settings
 from web_intelligence.app.core.security import AsyncResolver
+from web_intelligence.app.llm.manager import LLMConnectionManager
+from web_intelligence.app.llm.registry import AdapterRegistry
 from web_intelligence.app.privacy.gateway import PrivacyGateway
 from web_intelligence.app.providers.fixtures import (
     build_fixture_transport,
@@ -29,6 +31,8 @@ class AppContainer:
     repository: ResearchRepository
     gateway: PrivacyGateway
     router: SearchProviderRouter
+    llm_registry: AdapterRegistry
+    llm_manager: LLMConnectionManager
     orchestrator: ResearchOrchestrator
 
 
@@ -37,6 +41,8 @@ def build_container(
     *,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     dns_resolver: AsyncResolver | None = None,
+    llm_transport: httpx.AsyncBaseTransport | None = None,
+    llm_resolver: AsyncResolver | None = None,
 ) -> AppContainer:
     """Construct wired application dependencies.
 
@@ -62,12 +68,20 @@ def build_container(
     repository = ResearchRepository(database, retention_days=settings.retention_days)
     gateway = PrivacyGateway(settings, transport_factory=effective_transport)
     router = SearchProviderRouter(settings, gateway)
+    llm_registry = AdapterRegistry()
+    llm_manager = LLMConnectionManager(
+        repository,
+        registry=llm_registry,
+        transport=llm_transport,
+        resolver=llm_resolver,
+    )
     orchestrator = ResearchOrchestrator(
         settings,
         gateway,
         repository,
         router=router,
         dns_resolver=effective_resolver,
+        llm_manager=llm_manager,
     )
     return AppContainer(
         settings=settings,
@@ -75,5 +89,7 @@ def build_container(
         repository=repository,
         gateway=gateway,
         router=router,
+        llm_registry=llm_registry,
+        llm_manager=llm_manager,
         orchestrator=orchestrator,
     )

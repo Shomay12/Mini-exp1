@@ -29,6 +29,8 @@ def create_app(
     *,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     dns_resolver: AsyncResolver | None = None,
+    llm_transport: httpx.AsyncBaseTransport | None = None,
+    llm_resolver: AsyncResolver | None = None,
 ) -> FastAPI:
     """Create and wire the FastAPI application instance."""
     runtime_settings = settings or get_settings()
@@ -37,11 +39,14 @@ def create_app(
         runtime_settings,
         transport_factory=transport_factory,
         dns_resolver=dns_resolver,
+        llm_transport=llm_transport,
+        llm_resolver=llm_resolver,
     )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await container.database.initialize()
+        await container.llm_manager.initialize()
         purged = await container.repository.purge_expired_runs()
         if purged > 0:
             logger.info("Purged expired research runs", extra={"extra_data": {"count": purged}})

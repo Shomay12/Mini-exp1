@@ -18,15 +18,25 @@ from web_intelligence.app.evidence.deduplicator import MultiLevelDeduplicator
 from web_intelligence.app.evidence.evaluator import SourceProvenanceEvaluator
 from web_intelligence.app.evidence.relevance import HybridRelevanceEngine
 from web_intelligence.app.evidence.reranker import CrossEncoderReranker, SemanticRetriever
+from web_intelligence.app.llm.base import UniversalLocalModelAdapter
+from web_intelligence.app.llm.manager import LLMConnectionManager
 from web_intelligence.app.privacy.gateway import PrivacyGateway
 from web_intelligence.app.providers.router import SearchProviderRouter
 from web_intelligence.app.query.planner import DeterministicQueryPlanner, QueryPlanner
+from web_intelligence.app.research.context_budget import AdaptiveContextBudgetManager
 from web_intelligence.app.research.context_builder import ContextBuilder
+from web_intelligence.app.research.llm_hooks import (
+    LocalAnswerGenerator,
+    LocalEvidenceVerifier,
+    LocalQueryPlanner,
+)
 from web_intelligence.app.research.research_state import ResearchState
 from web_intelligence.app.retrieval.search_engine import WebRetrievalEngine
 from web_intelligence.app.schemas.documents import ExtractionStatus, SourceRecord
 from web_intelligence.app.schemas.evidence import CoverageAnalysis, EvidenceItem
 from web_intelligence.app.schemas.research import (
+    ContextAllocationPlan,
+    LocalSynthesisResult,
     QueryPlan,
     ResearchPackage,
     ResearchRequest,
@@ -65,6 +75,9 @@ class ResearchOrchestrator:
         semantic_retriever: SemanticRetriever | None = None,
         reranker: CrossEncoderReranker | None = None,
         dns_resolver: AsyncResolver | None = None,
+        llm_manager: LLMConnectionManager | None = None,
+        budget_manager: AdaptiveContextBudgetManager | None = None,
+        verifier: LocalEvidenceVerifier | None = None,
     ) -> None:
         self._settings = settings
         self._gateway = gateway
@@ -90,6 +103,22 @@ class ResearchOrchestrator:
         self._claim_comparator = claim_comparator or DeterministicClaimComparator()
         self._coverage = coverage_analyzer or ResearchCoverageAnalyzer()
         self._context_builder = context_builder or ContextBuilder()
+        self._llm_manager = llm_manager
+        self._budget_manager = budget_manager or AdaptiveContextBudgetManager()
+        self._verifier = verifier or LocalEvidenceVerifier()
+
+    async def _resolve_llm_adapter(
+        self, request: ResearchRequest
+    ) -> UniversalLocalModelAdapter | None:
+        """Return active or explicitly selected LLM adapter when requested."""
+        if not request.use_local_llm and not request.llm_connection_id:
+            return None
+        if self._llm_manager is None:
+            return None
+        if request.llm_connection_id:
+            _, adapter = await self._llm_manager.get_adapter(request.llm_connection_id)
+            return adapter
+        return await self._llm_manager.get_active_adapter()
 
     async def run_research(
         self,
@@ -106,11 +135,20 @@ class ResearchOrchestrator:
         provider_diagnostics: list[ProviderDiagnostic] = []
         all_sources: list[SourceRecord] = []
         evidence_items: list[EvidenceItem] = []
+        context_allocation: ContextAllocationPlan | None = None
+        synthesis: LocalSynthesisResult | None = None
 
         try:
+            llm_adapter = await self._resolve_llm_adapter(request)
+            active_planner: QueryPlanner = (
+                LocalQueryPlanner(self._planner, llm_adapter)
+                if llm_adapter is not None
+                else self._planner
+            )
+
             # 1. Query Planning & Decomposition
             state.advance("planning", ResearchStatus.PLANNING)
-            query_plan = await self._planner.plan(request.query)
+            query_plan = await active_planner.plan(request.query)
             state.queries_planned = len(query_plan.planned_queries)
             state.mark_stage_done("planning")
 
@@ -244,6 +282,24 @@ class ResearchOrchestrator:
             )
 
             state.mark_stage_done("processing")
+
+            # 5. Optional Adaptive Context Allocation, Local Synthesis & Source Verification
+            if llm_adapter is not None:
+                state.advance("synthesizing", ResearchStatus.PROCESSING)
+                generator = LocalAnswerGenerator(
+                    llm_adapter,
+                    budget_manager=self._budget_manager,
+                    verifier=self._verifier,
+                )
+                context_allocation, synthesis = await generator.generate_and_verify(
+                    query=request.query,
+                    evidence_items=evidence_items,
+                    all_sources=all_sources,
+                    conflicts=conflicts,
+                    coverage=coverage,
+                )
+                state.mark_stage_done("synthesizing")
+
             state.status = ResearchStatus.COMPLETED
             state.mark_stage_done("completed")
 
@@ -258,6 +314,8 @@ class ResearchOrchestrator:
                 coverage=coverage,
                 provider_diagnostics=provider_diagnostics,
                 privacy_policy=self._gateway.policy,
+                context_allocation=context_allocation,
+                synthesis=synthesis,
             )
             await self._repository.save_research_package(package)
             return package

@@ -28,11 +28,13 @@ async def get_health(request: Request) -> HealthResponse:
         db_ready = False
 
     providers = container.router.list_statuses()
+    active_llm = await container.llm_manager.get_active_summary()
     return HealthResponse(
         status="ok" if db_ready else "degraded",
         database_ready=db_ready,
         cloud_llm_required=False,
         providers=providers,
+        active_llm=active_llm,
         timestamp=datetime.now(timezone.utc),
     )
 

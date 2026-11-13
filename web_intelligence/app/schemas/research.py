@@ -16,6 +16,7 @@ from web_intelligence.app.schemas.evidence import (
     EvidenceItem,
     ExtractedClaim,
 )
+from web_intelligence.app.schemas.llm import LLMConnectionSummary
 from web_intelligence.app.schemas.search import (
     DisclosedSearchQuery,
     ProviderDiagnostic,
@@ -75,6 +76,8 @@ class ResearchRequest(BaseModel):
     max_fetch_urls: int = Field(default=8, ge=1, le=25)
     providers: list[str] | None = None
     chunk_target_tokens: int | None = Field(default=None, ge=40, le=1000)
+    use_local_llm: bool = False
+    llm_connection_id: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class ResearchProgress(BaseModel):
@@ -106,6 +109,48 @@ class ResearchMetadata(BaseModel):
     privacy_notice: str = ""
 
 
+class ContextAllocationPlan(BaseModel):
+    """Dynamic token-budget allocation breakdown tailored to active model capabilities."""
+
+    model_name: str
+    max_context_tokens: int
+    reserved_system_tokens: int
+    reserved_output_tokens: int
+    available_evidence_tokens: int
+    allocated_tokens: int
+    selected_evidence_ids: list[str] = Field(default_factory=list)
+    dropped_evidence_ids: list[str] = Field(default_factory=list)
+    included_conflict_count: int = 0
+    covered_domains: list[str] = Field(default_factory=list)
+
+
+class VerificationResult(BaseModel):
+    """Verification checks over citations, unsupported numbers, and detected conflicts."""
+
+    verified: bool = True
+    cited_source_ids: list[str] = Field(default_factory=list)
+    invalid_citations: list[str] = Field(default_factory=list)
+    unsupported_claims: list[str] = Field(default_factory=list)
+    acknowledged_conflicts: list[str] = Field(default_factory=list)
+    unacknowledged_conflicts: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class LocalSynthesisResult(BaseModel):
+    """Grounded answer synthesized locally by the connected LLM with source verification."""
+
+    connection_id: str
+    model_name: str
+    provider: str
+    answer: str = ""
+    cited_evidence_ids: list[str] = Field(default_factory=list)
+    cited_source_ids: list[str] = Field(default_factory=list)
+    context_budget: ContextAllocationPlan
+    verification: VerificationResult = Field(default_factory=VerificationResult)
+    latency_ms: int = 0
+    warning: str | None = None
+
+
 class ResearchPackage(BaseModel):
     """Model-independent structured evidence package prepared for downstream local LLMs."""
 
@@ -121,6 +166,8 @@ class ResearchPackage(BaseModel):
     coverage: CoverageAnalysis = Field(default_factory=CoverageAnalysis)
     metadata: ResearchMetadata
     progress: ResearchProgress = Field(default_factory=ResearchProgress)
+    context_allocation: ContextAllocationPlan | None = None
+    synthesis: LocalSynthesisResult | None = None
     error_message: str | None = None
 
 
@@ -144,6 +191,7 @@ class HealthResponse(BaseModel):
     database_ready: bool
     cloud_llm_required: bool = False
     providers: list[ProviderStatus] = Field(default_factory=list)
+    active_llm: LLMConnectionSummary | None = None
     timestamp: datetime
 
 

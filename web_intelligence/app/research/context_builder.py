@@ -14,6 +14,8 @@ from web_intelligence.app.schemas.evidence import (
     ExtractedClaim,
 )
 from web_intelligence.app.schemas.research import (
+    ContextAllocationPlan,
+    LocalSynthesisResult,
     QueryPlan,
     ResearchMetadata,
     ResearchPackage,
@@ -38,6 +40,8 @@ class ContextBuilder:
         coverage: CoverageAnalysis,
         provider_diagnostics: list[ProviderDiagnostic],
         privacy_policy: PrivacyPolicy,
+        context_allocation: ContextAllocationPlan | None = None,
+        synthesis: LocalSynthesisResult | None = None,
         error_message: str | None = None,
     ) -> ResearchPackage:
         """Compile all verified artifacts into a structured ResearchPackage."""
@@ -88,5 +92,7 @@ class ContextBuilder:
             coverage=coverage,
             metadata=metadata,
             progress=state.to_progress(),
+            context_allocation=context_allocation,
+            synthesis=synthesis,
             error_message=error_message,
         )
