@@ -33,12 +33,20 @@ async def test_full_api_and_stage4_research_workflow(tmp_path: Path) -> None:
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-            # 1. UI and static assets served cleanly
+            # 1. UI and modular static assets served cleanly
             ui_resp = await client.get("/")
             assert ui_resp.status_code == 200
             assert "WEB INTELLIGENCE ENGINE" in ui_resp.text
-            assert (await client.get("/static/styles.css")).status_code == 200
-            assert (await client.get("/static/app.js")).status_code == 200
+            for asset_path in (
+                "/static/styles/tokens.css",
+                "/static/styles/layout.css",
+                "/static/styles/components.css",
+                "/static/js/app.js",
+                "/static/js/api.js",
+                "/static/js/components/workspace.js",
+                "/static/js/components/inspector.js",
+            ):
+                assert (await client.get(asset_path)).status_code == 200
 
             # 2. Health & safe config
             health = (await client.get("/api/v1/health")).json()
