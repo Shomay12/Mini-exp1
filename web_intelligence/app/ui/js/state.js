@@ -24,6 +24,10 @@ const DEFAULT_PREFS = {
   genMaxOutputTokens: "",
   genStream: true,
   genSelectedRegistryEntryId: "",
+  agentDepth: "standard",
+  agentMaxIterations: 3,
+  agentAllowExternal: true,
+  agentRequireApproval: false,
 };
 
 function loadPrefs() {
@@ -47,7 +51,7 @@ function savePrefs(prefs) {
 export function createStore() {
   const prefs = loadPrefs();
   const state = {
-    mode: "research", // "research" | "search"
+    mode: "research", // "research" | "search" | "agent"
     compactPane: "workspace", // "workspace" | "history" | "inspector"
     sidebarCollapsed: Boolean(prefs.sidebarCollapsed),
     inspectorCollapsed: Boolean(prefs.inspectorCollapsed),
@@ -127,6 +131,16 @@ export function createStore() {
     generationError: null,
     generationExpandedSources: false,
     generationOptionsOpen: false,
+
+    // Stage 7 Agentic Research Orchestration State
+    agentSessions: [],
+    agentActiveId: null,
+    agentSession: null,
+    agentTrace: [],
+    agentTools: [],
+    agentRunning: false,
+    agentError: null,
+    agentEditingPlan: false,
   };
 
   const listeners = new Set();

@@ -81,7 +81,7 @@ function linkifyInlineText(rawText, sourceMap, packageSources = []) {
   return safe;
 }
 
-function renderSafeStructuredBody(rawText, outputFormat, sourceMap, packageSources) {
+export function renderSafeStructuredBody(rawText, outputFormat, sourceMap, packageSources) {
   const text = String(rawText || "");
   if (!text.trim()) return "";
 

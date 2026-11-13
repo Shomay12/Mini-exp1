@@ -3,7 +3,7 @@
  * coordinates split-pane resizing, keyboard navigation, dialogs, and live announcements.
  */
 
-import { ApiError, api, pollResearchUntilComplete } from "./api.js";
+import { ApiError, api, pollAgentUntilSettled, pollResearchUntilComplete } from "./api.js";
 import { resolveSelectedModelEntry } from "./components/generation_workspace.js";
 import { createInspector } from "./components/inspector.js";
 import {
@@ -29,6 +29,7 @@ const btnConfirmDelete = document.getElementById("btn-confirm-delete");
 const settingsDialogEl = document.getElementById("settings-dialog");
 
 let activeRunAbortController = null;
+let activeAgentAbortController = null;
 let activeGenerationAbortController = null;
 let sourceDetailAbortController = null;
 
@@ -42,11 +43,143 @@ function announce(message) {
 
 async function refreshSidebarRuns() {
   try {
-    const runs = await api.listResearchRuns();
-    store.setState({ runs: Array.isArray(runs) ? runs : [], backendError: null });
+    const [runs, agentSessions] = await Promise.all([
+      api.listResearchRuns(),
+      api.listAgentSessions(30).catch(() => null),
+    ]);
+    store.setState({
+      runs: Array.isArray(runs) ? runs : [],
+      ...(Array.isArray(agentSessions) ? { agentSessions } : {}),
+      backendError: null,
+    });
   } catch (err) {
     if (err.name === "AbortError") return;
     store.setState({ backendError: err.message });
+  }
+}
+
+async function refreshAgentMetadata() {
+  try {
+    const [sessions, tools] = await Promise.all([
+      api.listAgentSessions(30),
+      api.listAgentTools(),
+    ]);
+    store.setState({
+      agentSessions: Array.isArray(sessions) ? sessions : [],
+      agentTools: Array.isArray(tools) ? tools : [],
+    });
+  } catch {
+    // Ignore transient refresh misses
+  }
+}
+
+async function loadAgentTrace(researchId) {
+  if (!researchId) return;
+  try {
+    const resp = await api.getAgentTrace(researchId, 300);
+    if (store.getState().agentActiveId === researchId) {
+      store.setState({ agentTrace: resp?.entries || [] });
+    }
+  } catch {
+    // Ignore transient trace misses
+  }
+}
+
+async function pollAgentSession(researchId) {
+  if (activeAgentAbortController) {
+    activeAgentAbortController.abort();
+  }
+  activeAgentAbortController = new AbortController();
+  const { signal } = activeAgentAbortController;
+
+  store.setState({ isRunning: true, agentRunning: true, agentError: null });
+  try {
+    const { session, trace } = await pollAgentUntilSettled(researchId, {
+      signal,
+      onUpdate: (sess, traceEntries) => {
+        store.setState({
+          agentSession: sess,
+          ...(traceEntries ? { agentTrace: traceEntries } : {}),
+        });
+      },
+    });
+    const st = String(session?.status || "").toLowerCase();
+    store.setState({
+      isRunning: false,
+      agentRunning: false,
+      agentSession: session,
+      ...(trace ? { agentTrace: trace } : {}),
+      agentError: st === "failed" ? session.error_message || "Agent execution failed." : null,
+    });
+    await refreshAgentMetadata();
+    announce(
+      st === "waiting_approval"
+        ? "Agent paused awaiting user approval."
+        : st === "paused"
+          ? "Agent paused cleanly."
+          : `Agent finished (${st}) after ${session.current_iteration} iteration(s).`
+    );
+  } catch (err) {
+    if (err.name === "AbortError") return;
+    store.setState({
+      isRunning: false,
+      agentRunning: false,
+      agentError: err instanceof ApiError ? err.message : err.message || "Agent error.",
+    });
+  } finally {
+    if (activeAgentAbortController?.signal === signal) {
+      activeAgentAbortController = null;
+    }
+  }
+}
+
+async function handleSelectAgentSession(researchId) {
+  if (!researchId) return;
+  if (activeRunAbortController) {
+    activeRunAbortController.abort();
+    activeRunAbortController = null;
+  }
+  if (activeAgentAbortController) {
+    activeAgentAbortController.abort();
+    activeAgentAbortController = null;
+  }
+
+  store.setState({
+    mode: "agent",
+    compactPane: "workspace",
+    agentActiveId: researchId,
+    agentEditingPlan: false,
+    agentError: null,
+    isRunning: false,
+    agentRunning: false,
+    selectedSourceId: null,
+    selectedSourceDetail: null,
+  });
+
+  try {
+    const [session, traceResp] = await Promise.all([
+      api.getAgentSession(researchId),
+      api.getAgentTrace(researchId, 300).catch(() => null),
+    ]);
+    store.setState({
+      agentSession: session,
+      agentTrace: traceResp?.entries || [],
+      queryDraft: session.original_query || "",
+      agentError:
+        String(session.status).toLowerCase() === "failed"
+          ? session.error_message || "Agent execution failed."
+          : null,
+    });
+    workspace.setInputValue(session.original_query || "");
+
+    const activeStatuses = new Set(["pending", "planning", "executing", "evaluating", "synthesizing"]);
+    if (activeStatuses.has(String(session.status || "").toLowerCase())) {
+      await pollAgentSession(researchId);
+    }
+  } catch (err) {
+    store.setState({
+      agentError: err instanceof ApiError ? err.message : `Unable to load agent session: ${err.message}`,
+    });
   }
 }
 
@@ -190,6 +323,46 @@ async function handleSubmitQuery(rawQuery) {
   });
 
   try {
+    if (state.mode === "agent") {
+      const selectedEntry = resolveSelectedModelEntry(state);
+      const activeLlm = state.health?.active_llm || null;
+      const useLlm = Boolean(prefs.useLocalLlm && (selectedEntry || activeLlm));
+      const allowExternal = Boolean(prefs.agentAllowExternal);
+      const reqApproval = Boolean(prefs.agentRequireApproval);
+      const maxIters = Math.min(8, Math.max(1, Number(prefs.agentMaxIterations) || 3));
+      const payload = {
+        query,
+        research_depth: prefs.agentDepth || "standard",
+        use_local_llm: useLlm,
+        ...(selectedEntry
+          ? { connection_id: selectedEntry.connection_id, model_id: selectedEntry.model_id }
+          : activeLlm
+            ? { connection_id: activeLlm.id, model_id: activeLlm.model }
+            : {}),
+        providers,
+        allow_external_search: allowExternal,
+        require_user_approval_for_external: reqApproval,
+        execution_budget: {
+          max_iterations: maxIters,
+          require_approval_for_external_search: reqApproval,
+          require_approval_for_remote_urls: reqApproval,
+        },
+        max_results_per_query: Math.min(20, Math.max(1, Number(prefs.maxResultsPerQuery) || 6)),
+        chunk_target_tokens: Math.min(1000, Math.max(40, Number(prefs.chunkTargetTokens) || 180)),
+      };
+      const initialSession = await api.startAgentResearch(payload, signal);
+      store.setState({
+        agentActiveId: initialSession.research_id,
+        agentSession: initialSession,
+        agentTrace: [],
+        agentEditingPlan: false,
+        agentError: null,
+        agentRunning: true,
+      });
+      await pollAgentSession(initialSession.research_id);
+      return;
+    }
+
     if (state.mode === "search") {
       const resp = await api.runSearch(
         {
@@ -291,7 +464,84 @@ function handleCancelRun() {
     activeRunAbortController.abort();
     activeRunAbortController = null;
   }
-  store.setState({ isRunning: false, activeProgress: null });
+  if (activeAgentAbortController) {
+    activeAgentAbortController.abort();
+    activeAgentAbortController = null;
+  }
+  store.setState({ isRunning: false, agentRunning: false, activeProgress: null });
+}
+
+async function handlePauseAgent() {
+  const id = store.getState().agentActiveId;
+  if (!id) return;
+  try {
+    const sess = await api.pauseAgentResearch(id);
+    store.setState({ agentSession: sess });
+    await loadAgentTrace(id);
+    announce("Requested agent pause at task boundary.");
+  } catch (err) {
+    store.setState({ agentError: err.message });
+  }
+}
+
+async function handleResumeAgent() {
+  const id = store.getState().agentActiveId;
+  if (!id) return;
+  try {
+    const sess = await api.resumeAgentResearch(id);
+    store.setState({ agentSession: sess });
+    await pollAgentSession(id);
+  } catch (err) {
+    store.setState({ agentError: err.message });
+  }
+}
+
+async function handleCancelAgent() {
+  const id = store.getState().agentActiveId;
+  if (!id) return;
+  if (activeAgentAbortController) {
+    activeAgentAbortController.abort();
+    activeAgentAbortController = null;
+  }
+  try {
+    const sess = await api.cancelAgentResearch(id);
+    store.setState({ isRunning: false, agentRunning: false, agentSession: sess });
+    await loadAgentTrace(id);
+    await refreshAgentMetadata();
+    announce("Agent session cancelled.");
+  } catch (err) {
+    store.setState({ isRunning: false, agentRunning: false, agentError: err.message });
+  }
+}
+
+async function handleApproveAgentAction(approvalId, approved) {
+  const id = store.getState().agentActiveId;
+  if (!id) return;
+  try {
+    const sess = await api.approveAgentAction(id, {
+      approval_id: approvalId,
+      approved: Boolean(approved),
+      resume_execution: true,
+    });
+    store.setState({ agentSession: sess });
+    await pollAgentSession(id);
+  } catch (err) {
+    store.setState({ agentError: err.message });
+  }
+}
+
+async function handleSaveAgentPlan(tasks) {
+  const id = store.getState().agentActiveId;
+  if (!id) return;
+  try {
+    await api.updateAgentPlan(id, { tasks });
+    const sess = await api.getAgentSession(id);
+    store.setState({ agentSession: sess, agentEditingPlan: false, agentError: null });
+    await loadAgentTrace(id);
+    announce("Updated pending agent plan tasks.");
+  } catch (err) {
+    store.setState({ agentError: err.message });
+  }
 }
 
 function handleNewResearch() {
@@ -323,6 +573,12 @@ function handleNewResearch() {
     generationStreamWarnings: [],
     generationStreamCitations: [],
     generationError: null,
+    agentActiveId: null,
+    agentSession: null,
+    agentTrace: [],
+    agentRunning: false,
+    agentError: null,
+    agentEditingPlan: false,
   });
   workspace.setInputValue("");
   workspace.focusInput();
@@ -330,13 +586,20 @@ function handleNewResearch() {
 
 function handleExportJson() {
   const state = store.getState();
-  const payload = state.mode === "research" ? state.researchPackage : state.searchResponse;
+  const payload =
+    state.mode === "agent"
+      ? state.agentSession
+      : state.mode === "research"
+        ? state.researchPackage
+        : state.searchResponse;
   if (!payload) return;
 
   const filename =
-    state.mode === "research" && payload.research_id
-      ? `research-${payload.research_id}.json`
-      : `search-${Date.now()}.json`;
+    state.mode === "agent" && payload.research_id
+      ? `agent-${payload.research_id}.json`
+      : state.mode === "research" && payload.research_id
+        ? `research-${payload.research_id}.json`
+        : `search-${Date.now()}.json`;
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -380,12 +643,12 @@ btnConfirmDelete.addEventListener("click", async () => {
       runs: state.runs.filter((r) => r.research_id !== run.research_id),
       ...(isDeletedActive
         ? {
-            activeResearchId: null,
-            researchPackage: null,
-            selectedSourceId: null,
-            selectedSourceDetail: null,
-            highlightedEvidenceId: null,
-          }
+          activeResearchId: null,
+          researchPackage: null,
+          selectedSourceId: null,
+          selectedSourceDetail: null,
+          highlightedEvidenceId: null,
+        }
         : {}),
     });
     if (confirmDialogEl.open) confirmDialogEl.close();
@@ -633,8 +896,11 @@ window.addEventListener("wi:open-settings", (event) => {
 const toolbar = createToolbar({
   store,
   onModeChange: (mode) => {
-    if (mode !== "research" && mode !== "search") return;
-    store.setState({ mode, workspaceError: null });
+    if (mode !== "research" && mode !== "search" && mode !== "agent") return;
+    store.setState({ mode, workspaceError: null, agentError: null });
+    if (mode === "agent" && !store.getState().agentTools.length) {
+      refreshAgentMetadata();
+    }
     workspace.focusInput();
   },
   onExportJson: handleExportJson,
@@ -648,6 +914,7 @@ const sidebar = createSidebar({
   store,
   onNewResearch: handleNewResearch,
   onSelectRun: handleSelectRun,
+  onSelectAgentSession: handleSelectAgentSession,
   onRequestDelete: handleRequestDelete,
 });
 
@@ -655,6 +922,11 @@ const workspace = createWorkspace({
   store,
   onSubmitQuery: handleSubmitQuery,
   onCancelRun: handleCancelRun,
+  onPauseAgent: handlePauseAgent,
+  onResumeAgent: handleResumeAgent,
+  onCancelAgent: handleCancelAgent,
+  onApproveAgentAction: handleApproveAgentAction,
+  onSaveAgentPlan: handleSaveAgentPlan,
   onInspectSource: (sourceId, evidenceId) => {
     store.updatePrefs({ inspectorCollapsed: false });
     store.setState({
@@ -1056,6 +1328,13 @@ const inspector = createInspector({
       loadGenerationsForRun(st.activeResearchId);
     }
   },
+  onOpenAgentTraceTab: () => {
+    if (!store.getState().agentTools.length) {
+      refreshAgentMetadata();
+    }
+    const sid = store.getState().agentActiveId;
+    if (sid) loadAgentTrace(sid);
+  },
   onRefreshModelRegistry: refreshModelRegistry,
   onSelectGenerationRun: async (generationId) => {
     const existing = (store.getState().generationRuns || []).find(
@@ -1097,7 +1376,7 @@ initSplitResizers();
 renderAll(store.getState());
 
 async function bootstrap() {
-  const [healthRes, configRes, runsRes, presetsRes, llmConnsRes, ctxCapsRes, ctxBudgetRes, ctxNotesRes, regModelsRes] = await Promise.allSettled([
+  const [healthRes, configRes, runsRes, presetsRes, llmConnsRes, ctxCapsRes, ctxBudgetRes, ctxNotesRes, regModelsRes, agentSessionsRes, agentToolsRes] = await Promise.allSettled([
     api.getHealth(),
     api.getConfig(),
     api.listResearchRuns(),
@@ -1107,6 +1386,8 @@ async function bootstrap() {
     api.getContextBudget(),
     api.listWorkspaceNotes(),
     api.listRegisteredModels(),
+    api.listAgentSessions(30),
+    api.listAgentTools(),
   ]);
 
   const patch = {};
@@ -1152,6 +1433,14 @@ async function bootstrap() {
 
   if (regModelsRes.status === "fulfilled" && Array.isArray(regModelsRes.value)) {
     patch.modelRegistry = regModelsRes.value;
+  }
+
+  if (agentSessionsRes.status === "fulfilled" && Array.isArray(agentSessionsRes.value)) {
+    patch.agentSessions = agentSessionsRes.value;
+  }
+
+  if (agentToolsRes.status === "fulfilled" && Array.isArray(agentToolsRes.value)) {
+    patch.agentTools = agentToolsRes.value;
   }
 
   patch.backendError = errors.length && !patch.health ? errors[0] : null;

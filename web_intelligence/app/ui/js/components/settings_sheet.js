@@ -8,6 +8,7 @@ const SETTINGS_PANES = [
   { id: "providers", label: "Providers" },
   { id: "privacy", label: "Privacy" },
   { id: "budget", label: "Limits & Budget" },
+  { id: "model", label: "Local Model" },
 ];
 
 export function createSettingsSheet({ store }) {
@@ -260,9 +261,18 @@ export function createSettingsSheet({ store }) {
     const activeTab = validIds.has(state.settingsTab) ? state.settingsTab : "providers";
     const paneTitle = SETTINGS_PANES.find((p) => p.id === activeTab)?.label || "Settings";
 
+    if (activeTab === "model") {
+      const activeBtn = root.querySelector('[data-settings-tab="model"]');
+      const bodyEl = root.querySelector(".sheet-body");
+      if (activeBtn?.getAttribute("aria-selected") === "true" && bodyEl?.dataset.llmRendered === "1") {
+        return;
+      }
+    }
+
     let bodyHtml = "";
     if (activeTab === "providers") bodyHtml = renderProvidersPane(state);
     else if (activeTab === "privacy") bodyHtml = renderPrivacyPane(state);
+    else if (activeTab === "model") bodyHtml = `<p class="coverage-summary-text">Loading local model connections…</p>`;
     else bodyHtml = renderBudgetPane(state);
 
     root.innerHTML = `

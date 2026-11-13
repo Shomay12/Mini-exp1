@@ -12,6 +12,11 @@ import {
   safeHttpUrl,
   truncateText,
 } from "../formatters.js";
+import {
+  renderAgentComposerControls,
+  renderAgentStatusSection,
+  renderAgentWorkspaceDocument,
+} from "./agent_workspace.js";
 import { renderGenerationWorkspaceSection } from "./generation_workspace.js";
 
 const PIPELINE_STAGES = ["planning", "searching", "retrieving", "processing", "completed"];
@@ -25,6 +30,11 @@ export function createWorkspace({
   onStartGeneration,
   onStopGeneration,
   onOpenGenInspector,
+  onPauseAgent,
+  onResumeAgent,
+  onCancelAgent,
+  onApproveAgentAction,
+  onSaveAgentPlan,
 }) {
   const root = document.getElementById("workspace-root");
   root.innerHTML = `
@@ -86,6 +96,14 @@ export function createWorkspace({
       store.updatePrefs({ maxFetchUrls: clampInt(el.value, 1, 25, 8) });
     } else if (el.id === "inline-chunk-tokens") {
       store.updatePrefs({ chunkTargetTokens: clampInt(el.value, 40, 1000, 180) });
+    } else if (el.id === "agent-depth-select") {
+      store.updatePrefs({ agentDepth: el.value });
+    } else if (el.id === "agent-max-iterations") {
+      store.updatePrefs({ agentMaxIterations: clampInt(el.value, 1, 8, 3) });
+    } else if (el.id === "agent-allow-external") {
+      store.updatePrefs({ agentAllowExternal: Boolean(el.checked) });
+    } else if (el.id === "agent-require-approval") {
+      store.updatePrefs({ agentRequireApproval: Boolean(el.checked) });
     }
   });
 
@@ -115,6 +133,18 @@ export function createWorkspace({
   });
 
   statusEl.addEventListener("click", (event) => {
+    if (event.target.closest("#btn-agent-pause")) {
+      if (onPauseAgent) onPauseAgent();
+      return;
+    }
+    if (event.target.closest("#btn-agent-resume")) {
+      if (onResumeAgent) onResumeAgent();
+      return;
+    }
+    if (event.target.closest("#btn-agent-cancel")) {
+      if (onCancelAgent) onCancelAgent();
+      return;
+    }
     if (event.target.closest("#btn-cancel-progress")) {
       onCancelRun();
       return;
@@ -195,6 +225,52 @@ export function createWorkspace({
 
     if (event.target.closest("#btn-open-gen-inspector")) {
       if (onOpenGenInspector) onOpenGenInspector();
+      return;
+    }
+
+    const approveBtn = event.target.closest("[data-agent-approve]");
+    if (approveBtn) {
+      if (onApproveAgentAction) {
+        onApproveAgentAction(
+          approveBtn.dataset.agentApprove,
+          approveBtn.dataset.decision === "approve"
+        );
+      }
+      return;
+    }
+
+    if (event.target.closest("#btn-agent-edit-plan")) {
+      store.setState({ agentEditingPlan: true });
+      return;
+    }
+
+    if (event.target.closest("#btn-agent-cancel-plan-edit")) {
+      store.setState({ agentEditingPlan: false });
+      return;
+    }
+
+    if (event.target.closest("#btn-agent-save-plan")) {
+      const sess = store.getState().agentSession;
+      const planTasks = sess?.research_plan?.tasks || [];
+      const editedTasks = planTasks.map((t) => {
+        const qInput = resultsEl.querySelector(`[data-edit-task-question="${CSS.escape(t.task_id)}"]`);
+        const oInput = resultsEl.querySelector(`[data-edit-task-objective="${CSS.escape(t.task_id)}"]`);
+        return {
+          task_id: t.task_id,
+          question: qInput ? qInput.value.trim() || t.question : t.question,
+          objective: oInput ? oInput.value.trim() || t.objective : t.objective,
+          expected_evidence: t.expected_evidence || "Primary documentation or empirical findings",
+          entities_keywords: t.entities_keywords || [],
+          suggested_tools: t.suggested_tools || ["web_search", "url_retrieve"],
+          priority: t.priority ?? 3,
+          dependencies: t.dependencies || [],
+          completion_criteria:
+            t.completion_criteria || "At least one relevant retrieved passage or corroborated claim.",
+        };
+      });
+      if (onSaveAgentPlan && editedTasks.length > 0) {
+        onSaveAgentPlan(editedTasks);
+      }
       return;
     }
   });
@@ -285,10 +361,13 @@ export function createWorkspace({
         ? state.prefs.selectedProviders[0]
         : "auto";
     const isSearch = state.mode === "search";
-    const submitLabel = isSearch ? "Search" : "Research";
+    const isAgent = state.mode === "agent";
+    const submitLabel = isSearch ? "Search" : isAgent ? "Start Agent" : "Research";
     const placeholder = isSearch
       ? "Search query…"
-      : "Research question… (⌘Enter to run)";
+      : isAgent
+        ? "Complex research objective for autonomous investigation… (⌘Enter to start)"
+        : "Research question… (⌘Enter to run)";
 
     composerEl.innerHTML = `
       <div class="composer">
@@ -342,6 +421,8 @@ export function createWorkspace({
               </div>
             </div>
 
+            ${isAgent ? renderAgentComposerControls(state) : ""}
+
             ${
               !isSearch
                 ? activeLlm
@@ -393,7 +474,18 @@ export function createWorkspace({
       `);
     }
 
-    if (state.isRunning) {
+    if (state.agentError && state.mode === "agent") {
+      blocks.push(`
+        <div class="banner--error" role="alert">
+          ${escapeHtml(state.agentError)}
+        </div>
+      `);
+    }
+
+    if (state.mode === "agent") {
+      const agentStatusHtml = renderAgentStatusSection(state);
+      if (agentStatusHtml) blocks.push(agentStatusHtml);
+    } else if (state.isRunning) {
       const p = state.activeProgress || { current_stage: "planning", completed_stages: [] };
       const stageIdx = Math.max(0, PIPELINE_STAGES.indexOf(p.current_stage));
       const pct = Math.min(95, Math.max(15, Math.round(((stageIdx + 1) / PIPELINE_STAGES.length) * 100)));
@@ -418,9 +510,11 @@ export function createWorkspace({
     }
 
     const disclosed =
-      state.mode === "research"
-        ? state.researchPackage?.search_queries || []
-        : state.searchResponse?.disclosed_queries || [];
+      state.mode === "agent"
+        ? state.agentSession?.disclosed_queries || []
+        : state.mode === "research"
+          ? state.researchPackage?.search_queries || []
+          : state.searchResponse?.disclosed_queries || [];
 
     if (disclosed.length > 0) {
       const totalRedactions = disclosed.reduce((sum, q) => sum + (q.redactions_applied?.length || 0), 0);
@@ -856,6 +950,16 @@ export function createWorkspace({
       genSourcesOpen: state.generationExpandedSources,
       genOptOpen: state.generationOptionsOpen,
       genErr: state.generationError || null,
+      agentId: state.agentSession?.research_id || null,
+      agentStatus: state.agentSession?.status || null,
+      agentUpdated: state.agentSession?.updated_at || null,
+      agentIter: state.agentSession?.current_iteration ?? 0,
+      agentPlanVer: state.agentSession?.research_plan?.version ?? 0,
+      agentTasksSig: (state.agentSession?.research_plan?.tasks || []).map((t) => `${t.task_id}:${t.status}:${t.question}`).join("|"),
+      agentApprovalsLen: (state.agentSession?.pending_approvals || []).length,
+      agentGapsLen: (state.agentSession?.identified_gaps || []).length,
+      agentGenId: state.agentSession?.generation_result?.generation_id || null,
+      agentEditingPlan: Boolean(state.agentEditingPlan),
       isRunning: state.isRunning,
     });
     if (sig === lastResultsSig && resultsEl.children.length > 0) {
@@ -863,7 +967,9 @@ export function createWorkspace({
     }
     lastResultsSig = sig;
 
-    if (state.mode === "research" && state.researchPackage) {
+    if (state.mode === "agent") {
+      resultsEl.innerHTML = renderAgentWorkspaceDocument(state);
+    } else if (state.mode === "research" && state.researchPackage) {
       resultsEl.innerHTML = renderResearchPackage(state.researchPackage, state);
     } else if (state.mode === "search" && state.searchResponse) {
       resultsEl.innerHTML = renderSearchResponse(state.searchResponse);

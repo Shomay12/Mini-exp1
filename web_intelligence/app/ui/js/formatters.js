@@ -114,10 +114,29 @@ export function renderStatusPill(status, labelOverride = null) {
     http_error: { cls: "status-label--negative", label: "HTTP error" },
 
     pending: { cls: "status-label--active", label: "Pending" },
+    ready: { cls: "status-label--active", label: "Ready" },
+    running: { cls: "status-label--active", label: "Running" },
     planning: { cls: "status-label--active", label: "Planning" },
+    executing: { cls: "status-label--active", label: "Executing" },
+    evaluating: { cls: "status-label--active", label: "Evaluating" },
+    synthesizing: { cls: "status-label--active", label: "Synthesizing" },
     searching: { cls: "status-label--active", label: "Searching" },
     retrieving: { cls: "status-label--active", label: "Retrieving" },
     processing: { cls: "status-label--active", label: "Processing" },
+
+    paused: { cls: "status-label--warning", label: "Paused" },
+    waiting_approval: { cls: "status-label--warning", label: "Awaiting Approval" },
+    cancelled: { cls: "", label: "Cancelled" },
+    blocked: { cls: "status-label--warning", label: "Blocked" },
+
+    confirmed: { cls: "status-label--positive", label: "Confirmed" },
+    weak: { cls: "status-label--warning", label: "Weak" },
+    conflicting: { cls: "status-label--negative", label: "Conflicting" },
+    approved: { cls: "status-label--positive", label: "Approved" },
+    rejected: { cls: "status-label--negative", label: "Rejected" },
+    diminishing_returns: { cls: "", label: "Diminishing Returns" },
+    max_iterations_reached: { cls: "status-label--warning", label: "Max Iterations" },
+    user_cancelled: { cls: "", label: "Cancelled" },
   };
   const cfg = map[normalized] || { cls: "", label: status || "Unknown" };
   return `<span class="status-label ${cfg.cls}"><span class="status-dot" aria-hidden="true"></span><span>${escapeHtml(labelOverride || cfg.label)}</span></span>`;

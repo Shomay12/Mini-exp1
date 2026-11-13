@@ -4,7 +4,7 @@
 
 import { escapeHtml, formatRelativeTime, truncateText } from "../formatters.js";
 
-export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDelete }) {
+export function createSidebar({ store, onNewResearch, onSelectRun, onSelectAgentSession, onRequestDelete }) {
   const btnNew = document.getElementById("btn-new-research");
   const filterInput = document.getElementById("sidebar-search");
   const clearBtn = document.getElementById("sidebar-search-clear");
@@ -28,6 +28,12 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
   });
 
   listEl.addEventListener("click", (event) => {
+    const agentBtn = event.target.closest("[data-select-agent]");
+    if (agentBtn) {
+      if (onSelectAgentSession) onSelectAgentSession(agentBtn.dataset.selectAgent);
+      return;
+    }
+
     const deleteBtn = event.target.closest("[data-delete-run]");
     if (deleteBtn) {
       event.stopPropagation();
@@ -45,6 +51,15 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
 
   function render(state) {
     const term = state.historyFilter.trim().toLowerCase();
+    const agentList = state.agentSessions || [];
+    const filteredAgents = term
+      ? agentList.filter(
+          (ag) =>
+            String(ag.original_query || "").toLowerCase().includes(term) ||
+            String(ag.research_id || "").toLowerCase().includes(term)
+        )
+      : agentList;
+
     const filtered = term
       ? state.runs.filter(
           (run) =>
@@ -53,17 +68,47 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
         )
       : state.runs;
 
-    if (state.runs.length === 0) {
+    if (state.runs.length === 0 && agentList.length === 0) {
       listEl.innerHTML = `<div class="sidebar-empty">No saved runs.</div>`;
       return;
     }
 
-    if (filtered.length === 0) {
+    if (filtered.length === 0 && filteredAgents.length === 0) {
       listEl.innerHTML = `<div class="sidebar-empty">No matching runs.</div>`;
       return;
     }
 
-    listEl.innerHTML = filtered
+    const agentRowsHtml = filteredAgents
+      .map((ag) => {
+        const selected = state.mode === "agent" && ag.research_id === state.agentActiveId;
+        const conflicts =
+          ag.conflicts_detected > 0
+            ? `<span style="color: var(--tone-negative);">· ${ag.conflicts_detected} conflict${ag.conflicts_detected === 1 ? "" : "s"}</span>`
+            : "";
+        return `
+          <div class="history-row ${selected ? "is-selected" : ""}" role="listitem">
+            <button
+              class="history-row__select"
+              type="button"
+              data-select-agent="${escapeHtml(ag.research_id)}"
+              aria-current="${selected ? "true" : "false"}"
+              title="${escapeHtml(ag.original_query)}"
+            >
+              <div class="history-row__title"><span class="mono" style="color:var(--accent);">[Agent]</span> ${escapeHtml(truncateText(ag.original_query, 76))}</div>
+              <div class="history-row__meta">
+                <span>${escapeHtml(formatRelativeTime(ag.updated_at || ag.created_at))}</span>
+                <span>· iter ${ag.current_iteration ?? 0}</span>
+                <span>· ${ag.sources_retained ?? 0} src</span>
+                <span>· ${escapeHtml(ag.status)}</span>
+                ${conflicts}
+              </div>
+            </button>
+          </div>
+        `;
+      })
+      .join("");
+
+    const runRowsHtml = filtered
       .map((run) => {
         const selected = run.research_id === state.activeResearchId;
         const conflicts =
@@ -110,6 +155,8 @@ export function createSidebar({ store, onNewResearch, onSelectRun, onRequestDele
         `;
       })
       .join("");
+
+    listEl.innerHTML = agentRowsHtml + runRowsHtml;
   }
 
   return { render };

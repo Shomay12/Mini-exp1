@@ -238,3 +238,31 @@ Connects the Stage 4 Web Intelligence Engine and Stage 5 Adaptive Context Manage
   - `GET /api/v1/generation`, `GET /api/v1/generation/{generation_id}`, `POST /api/v1/generation/{generation_id}/cancel`
   - `GET`/`POST /api/v1/llm/registry` and `PATCH /api/v1/llm/registry/{entry_id}/roles`
 - Workbench UI adds `ui/js/components/generation_workspace.js` (multi-server model selector, template/format/length/mode controls, live streaming markdown/JSON output, **Stop Generating**, interactive clickable `[S#]` citation chips, expandable sources drawer, AI grounding notice) and `ui/js/components/generation_inspector.js` (**Gen** Inspector tab showing telemetry, server usage, citation validation diagnostics, model registry, and run history).
+
+---
+
+## Stage 7 — Agentic Research Orchestration Engine (`web_intelligence/app/agent/`)
+
+Coordinates Stages 2–6 inside a bounded, persistent, user-controllable multi-iteration research loop (`AgentResearchOrchestrator`) rather than duplicating retrieval, extraction, context management, or generation subsystems.
+
+### 1. Autonomous Research Loop & Planning (`orchestrator.py`, `research_planner.py`, `task_manager.py`, `execution_engine.py`)
+- **Explicit Lifecycle (`AgentSessionStatus`)**: `pending` -> `planning` -> `executing` -> `evaluating` -> `synthesizing` -> `completed`, plus interactive `paused`, `waiting_approval`, `cancelled`, and `failed` states governed by `ALLOWED_STATUS_TRANSITIONS` (`research_state.py`).
+- **DAG Planning & User Plan Edits**: `AgentResearchPlanner` builds an initial `ResearchPlanSpec` of `ResearchTask` nodes (local LLM JSON planning with deterministic multi-facet fallback) and gap-driven follow-up tasks (`origin="gap_followup"`). `TaskManager` enforces DAG acyclicity (`PlanValidationError`), priority/dependency scheduling, `max_research_depth` bounds, duplicate-task fingerprinting (`compute_task_fingerprint`), and safe `PUT /api/v1/agent/research/{id}/plan` edits for pending tasks.
+- **Independent Bounded Execution (`execution_budget.py`)**: `ExecutionBudgetTracker` enforces hard limits on iterations, searches, page retrievals, concurrency, wall-clock seconds, local inference calls, estimated tokens, task depth, tool timeouts, and follow-ups per iteration across `quick` (`2`), `standard` (`3`), and `deep` (`5` iterations) presets in `default_budget_for_depth`.
+
+### 2. Controlled Tool Registry & Privacy/Approval Gates (`tool_registry.py`, `tool_selector.py`)
+- Strictly rejects arbitrary code/shell/browser execution (`FORBIDDEN_TOOL_NAMES`: `python`, `exec`, `eval`, `shell`, `bash`, `sh`, `zsh`, `subprocess`, `browser`, `playwright`, `javascript`).
+- Registers eight `_StrictToolInput` (`extra="forbid"`) wrappers over existing Stage 2–6 services: `web_search`, `url_retrieve`, `page_extract`, `local_doc_retrieve`, `evidence_search`, `source_inspect`, `context_inspect`, and `local_llm_inference`.
+- Supports mock-only offline execution when configured (`Settings(search_providers=["mock"], enable_mock_provider=True)`) and explicit user approval gates (`require_user_approval_for_external`, raising `ToolApprovalRequiredError` -> `PendingApprovalRequest`) resumed via `POST /api/v1/agent/research/{id}/approve`.
+
+### 3. Observation Processing, Evidence Quality, Gap Analysis & Stopping Policy
+- `ObservationProcessor` feeds raw tool results through Stage 3/4 deduplication, chunking, `HybridRelevanceEngine`, `SourceProvenanceEvaluator`, `RuleBasedClaimExtractor`, and `DeterministicClaimComparator` while tracking explicit `SourceDecisionRecord` retained/rejected audits.
+- `EvidenceQualityEvaluator` classifies task and session support as `confirmed`, `corroborated`, `weak`, `conflicting`, or `unverified`, never equating lexical relevance with truth and keeping contradictory evidence visible.
+- `GapAnalyzer` detects unresolved gaps across seven `GapCategory` classes (`unanswered_question`, `missing_category`, `single_source_claim`, `conflicting_results`, `outdated_information`, `weak_support`, `missing_primary_source`) while deduplicating previously tracked gaps.
+- `StoppingPolicy` applies prioritized halting rules (`user_cancelled`, `waiting_user_approval`, `paused_by_user`, `model_unavailable`, hard budget limits, `tools_unavailable`, `diminishing_returns`, `objectives_covered`) cleanly through `_evaluate_gaps_and_stopping(...)` across both standard and post-approval paths.
+
+### 4. SQLite Persistence, Operational Trace, Agent API & Workbench UI
+- Adds `agent_sessions` and `agent_trace_entries` tables (`web_intelligence/app/storage/database.py`, `repositories.py`) storing checkpointed sessions and secret-scrubbed chronological `ResearchTraceEntry` records (`ResearchTraceRecorder`, 20 typed `TraceEventType` classes).
+- FastAPI router `web_intelligence/app/api/routes/agent.py` exposes `/api/v1/agent/tools`, `POST`/`GET /api/v1/agent/research`, `GET /api/v1/agent/research/{id}`, `GET`/`PUT /plan`, `/tasks`, `/trace`, `/gaps`, `/pause`, `/resume`, `/cancel`, and `/approve`.
+- Workbench UI adds **Agent** workspace mode (`ui/js/components/agent_workspace.js`) with live progress, budget consumption meters, Pause/Resume/Cancel controls, approval prompt cards, editable pending plan tasks, evidence verdicts, open gaps, conflicts, and cited Stage 6 synthesis, alongside the **Trace** (`agent_trace`) Inspector tab (`ui/js/components/agent_trace.js`) and restored Settings **Local Model** tab (`ui/js/components/settings_sheet.js`).
+- Detailed documentation: [docs/AGENT_ORCHESTRATION.md](docs/AGENT_ORCHESTRATION.md), [docs/RESEARCH_LOOP.md](docs/RESEARCH_LOOP.md), [docs/TOOL_REGISTRY.md](docs/TOOL_REGISTRY.md), and [docs/RESEARCH_TRACE.md](docs/RESEARCH_TRACE.md).

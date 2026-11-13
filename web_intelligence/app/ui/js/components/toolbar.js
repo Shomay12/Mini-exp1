@@ -64,16 +64,21 @@ export function createToolbar({ store, onModeChange, onExportJson, onOpenSetting
     }
 
     let title = "New Research";
-    if (state.mode === "research" && state.researchPackage?.original_query) {
+    if (state.mode === "agent" && state.agentSession?.original_query) {
+      title = truncateText(state.agentSession.original_query, 44);
+    } else if (state.mode === "agent") {
+      title = "Autonomous Agent";
+    } else if (state.mode === "research" && state.researchPackage?.original_query) {
       title = truncateText(state.researchPackage.original_query, 44);
     } else if (state.mode === "search" && state.searchResponse?.original_query) {
       title = truncateText(state.searchResponse.original_query, 44);
     }
     titleEl.textContent = title;
     titleEl.title =
+      (state.mode === "agent" && state.agentSession?.original_query) ||
       state.researchPackage?.original_query ||
       state.searchResponse?.original_query ||
-      "New Research";
+      title;
 
     // Quiet single-dot engine status
     statusEl.className = "status-label toolbar-hide-compact";
@@ -95,7 +100,11 @@ export function createToolbar({ store, onModeChange, onExportJson, onOpenSetting
     // Concise context budget text grounded in Stage 5 ContextBudget / Preview when available
     const previewPkg = state.contextPreview?.context_package;
     const alloc = previewPkg?.budget_allocation || state.contextBudget?.effective_allocation;
-    if (previewPkg) {
+    if (state.mode === "agent" && state.agentSession) {
+      const usedTok = state.agentSession.budget_usage?.estimated_tokens ?? 0;
+      const capTok = state.agentSession.execution_budget?.max_estimated_tokens ?? 120000;
+      budgetLabelEl.textContent = `~${formatNumber(usedTok)} / ${formatNumber(capTok)} tok`;
+    } else if (previewPkg) {
       const approx = previewPkg.estimation_is_approximate ? "~" : "";
       budgetLabelEl.textContent = `${approx}${formatNumber(previewPkg.total_with_output_tokens)} / ${formatNumber(alloc?.effective_context_limit || 8192)} tok`;
     } else if (alloc) {
@@ -109,6 +118,7 @@ export function createToolbar({ store, onModeChange, onExportJson, onOpenSetting
     }
 
     const hasExportable = Boolean(
+      (state.mode === "agent" && state.agentSession) ||
       (state.mode === "research" && state.researchPackage) ||
       (state.mode === "search" && state.searchResponse)
     );

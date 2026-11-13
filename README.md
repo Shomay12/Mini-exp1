@@ -17,6 +17,7 @@
 - **Universal Local LLM Connections & Model Registry** *(optional, no cloud LLM required)*: Connect user-hosted **Ollama**, **LM Studio**, **llama.cpp**, **vLLM**, **LocalAI**, or any OpenAI-compatible HTTP endpoint via the UI (`Local Model` sheet) or `/api/v1/llm/*` API, with capability verification (`verified` vs `configured` vs `unknown`), persistent multi-server `ModelRegistry` (`/api/v1/llm/registry`), manual model registration, and task roles. Zero-LLM mode stays fully functional when disconnected.
 - **Stage 5 Adaptive Context Management Engine**: Token estimation, 7-bucket dynamic context allocation, conflict-pairing evidence selection, extractive/dedup/structured/model-assisted compression, conversation history & workspace notes, pre-inference validation, and the **Context Inspector** UI tab.
 - **Stage 6 Universal Local LLM Execution & Answer Generation Engine**: Security-hardened prompt compiler (`[S1]`..`[Sn]` citations, untrusted webpage data isolation), native or prompted JSON mode, live SSE streaming with mid-stream cooperative cancellation preserving partial output, multi-stage long-form report synthesis with cross-section repetition/contradiction checks, separate `CitationValidator`, **Research Answer Workspace**, and **Gen** telemetry Inspector tab.
+- **Stage 7 Agentic Research Orchestration Engine**: Bounded multi-iteration autonomous research loop (`AgentResearchOrchestrator`) coordinating DAG planning (`AgentResearchPlanner`, `TaskManager`), controlled schema-validated `ToolRegistry` / `ToolSelector`, Phase 4 `EvidenceQualityEvaluator`, seven-category `GapAnalyzer`, multi-factor `StoppingPolicy`, hard `ExecutionBudgetTracker` caps, chronological redacted `ResearchTraceRecorder`, SQLite session persistence (`agent_sessions`, `agent_trace_entries`), `/api/v1/agent/*` controls (`pause`, `resume`, `cancel`, `approve`, `PUT /plan`), and **Agent Workspace** + **Trace** Inspector tab. See [docs/AGENT_ORCHESTRATION.md](docs/AGENT_ORCHESTRATION.md), [docs/RESEARCH_LOOP.md](docs/RESEARCH_LOOP.md), [docs/TOOL_REGISTRY.md](docs/TOOL_REGISTRY.md), and [docs/RESEARCH_TRACE.md](docs/RESEARCH_TRACE.md).
 - **API, Local SQLite Persistence & Research UI**: FastAPI `/api/v1/*` endpoints and a minimal, information-dense browser workbench.
 
 ## Installation & Setup
@@ -46,11 +47,14 @@ Never commit `.env` or hardcode credentials.
 ## Running Tests & Demo
 
 ```bash
-# Run full automated Stages 1–6 unit & integration test suite (109 tests)
-.venv/bin/pytest -v --ignore=web_intelligence/tests/test_agent_unit.py --ignore=web_intelligence/tests/test_agent_integration_and_failures.py
+# Run full automated Stages 1–7 unit & integration test suite
+.venv/bin/pytest web_intelligence/tests -v
 
-# Run end-to-end CLI research demonstration using MockSearchProvider
+# Run end-to-end CLI research demonstration using MockSearchProvider (Stages 2-4)
 .venv/bin/python -m web_intelligence.scripts.demo_research
+
+# Run multi-iteration autonomous Stage 7 agent research CLI demonstration
+.venv/bin/python -m web_intelligence.scripts.demo_agent_research
 ```
 
 ## Starting the API & Research Interface
@@ -84,5 +88,7 @@ Never commit `.env` or hardcode credentials.
 | `GET`/`POST`/`PUT` | `/api/v1/context/*` | Capabilities, adaptive budget rules, context preview, compression, validation & workspace notes |
 | `POST` | `/api/v1/generation` / `/api/v1/generation/stream` | Execute grounded local LLM synthesis or SSE streaming answer/long-form report |
 | `GET`/`POST` | `/api/v1/generation/{id}` / `/api/v1/generation/{id}/cancel` | Retrieve persisted generation runs (including partial) or cooperatively cancel in-flight generation |
+| `GET`/`POST` | `/api/v1/agent/tools` / `/api/v1/agent/research` | Inspect Stage 7 controlled tool registry, launch async autonomous research sessions (`202`), or list agent sessions |
+| `GET`/`PUT`/`POST` | `/api/v1/agent/research/{id}/...` | Poll session state/plan/tasks/trace/gaps, edit pending DAG tasks (`PUT /plan`), pause/resume/cancel, or approve gated actions (`/approve`) |
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for component design, data-flow diagram, SQLite schema, privacy boundaries, and Stage 4 methodology details, and [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md) for implementation milestones and decisions.
+See [ARCHITECTURE.md](ARCHITECTURE.md) and `docs/` (`AGENT_ORCHESTRATION.md`, `RESEARCH_LOOP.md`, `TOOL_REGISTRY.md`, `RESEARCH_TRACE.md`) for component design, data-flow, SQLite schema, privacy boundaries, and Stage 4/7 methodologies, and [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md) for implementation milestones and decisions.

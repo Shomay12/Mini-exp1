@@ -14,6 +14,8 @@ import {
   safeHttpUrl,
   truncateText,
 } from "../formatters.js";
+import { renderAgentTraceInspectorTab } from "./agent_trace.js";
+import { derivePackageFromAgentSession } from "./agent_workspace.js";
 import { renderContextInspectorTab } from "./context_inspector.js";
 import { renderGenerationInspectorTab } from "./generation_inspector.js";
 
@@ -31,6 +33,7 @@ export function createInspector({
   onJumpToSource,
   onOpenContextTab,
   onOpenGenerationTab,
+  onOpenAgentTraceTab,
   onRefreshModelRegistry,
   onSelectGenerationRun,
   onApplyContextBudget,
@@ -57,6 +60,8 @@ export function createInspector({
         onOpenContextTab();
       } else if (nextTab === "generation" && onOpenGenerationTab) {
         onOpenGenerationTab();
+      } else if (nextTab === "agent_trace" && onOpenAgentTraceTab) {
+        onOpenAgentTraceTab();
       }
     });
   }
@@ -687,7 +692,12 @@ export function createInspector({
       btn.setAttribute("aria-selected", String(btn.dataset.inspectorTab === activeTab));
     }
 
-    const pkg = state.mode === "research" ? state.researchPackage : null;
+    const pkg =
+      state.mode === "agent"
+        ? derivePackageFromAgentSession(state.agentSession)
+        : state.mode === "research"
+          ? state.researchPackage
+          : null;
     if (state.mode === "search" && state.searchResponse) {
       const n = state.searchResponse.results?.length ?? 0;
       countEl.textContent = `${n} result${n === 1 ? "" : "s"}`;
@@ -706,6 +716,10 @@ export function createInspector({
       pkgStatus: pkg?.research_status || null,
       pkgSources: pkg?.sources?.length || 0,
       pkgEv: pkg?.evidence?.length || 0,
+      agentId: state.agentSession?.research_id || null,
+      agentUpdated: state.agentSession?.updated_at || null,
+      agentTraceLen: (state.agentTrace || []).length,
+      agentToolsLen: (state.agentTools || []).length,
       searchQ: state.searchResponse?.sanitized_query || null,
       searchN: state.searchResponse?.results?.length || 0,
       passageFilter: state.passageFilter,
@@ -746,6 +760,8 @@ export function createInspector({
       bodyEl.innerHTML = renderContextInspectorTab(state, pkg);
     } else if (activeTab === "generation") {
       bodyEl.innerHTML = renderGenerationInspectorTab(state, pkg);
+    } else if (activeTab === "agent_trace") {
+      bodyEl.innerHTML = renderAgentTraceInspectorTab(state);
     } else {
       bodyEl.innerHTML = renderAuditTab(state, pkg);
     }

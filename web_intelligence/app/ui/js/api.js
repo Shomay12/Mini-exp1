@@ -442,9 +442,82 @@ export const api = {
       }
     }
   },
+
+  // Stage 7 Agentic Research Orchestration Endpoints
+  listAgentTools(signal) {
+    return requestJson("/agent/tools", { method: "GET", signal });
+  },
+
+  startAgentResearch(payload, signal) {
+    return requestJson("/agent/research", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal,
+    });
+  },
+
+  listAgentSessions(limit = 30, signal) {
+    return requestJson(`/agent/research?limit=${encodeURIComponent(limit)}`, {
+      method: "GET",
+      signal,
+    });
+  },
+
+  getAgentSession(researchId, signal) {
+    return requestJson(`/agent/research/${encodeURIComponent(researchId)}`, {
+      method: "GET",
+      signal,
+    });
+  },
+
+  updateAgentPlan(researchId, payload) {
+    return requestJson(`/agent/research/${encodeURIComponent(researchId)}/plan`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getAgentTrace(researchId, limit = 300, signal) {
+    return requestJson(
+      `/agent/research/${encodeURIComponent(researchId)}/trace?limit=${encodeURIComponent(limit)}`,
+      { method: "GET", signal }
+    );
+  },
+
+  pauseAgentResearch(researchId) {
+    return requestJson(`/agent/research/${encodeURIComponent(researchId)}/pause`, {
+      method: "POST",
+    });
+  },
+
+  resumeAgentResearch(researchId) {
+    return requestJson(`/agent/research/${encodeURIComponent(researchId)}/resume`, {
+      method: "POST",
+    });
+  },
+
+  cancelAgentResearch(researchId) {
+    return requestJson(`/agent/research/${encodeURIComponent(researchId)}/cancel`, {
+      method: "POST",
+    });
+  },
+
+  approveAgentAction(researchId, payload) {
+    return requestJson(`/agent/research/${encodeURIComponent(researchId)}/approve`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
 };
 
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
+const AGENT_SETTLED_STATUSES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "paused",
+  "waiting_approval",
+]);
 
 /**
  * Poll GET /api/v1/research/{id} until terminal state or AbortController abort.
@@ -468,6 +541,41 @@ export async function pollResearchUntilComplete(researchId, { signal, onUpdate, 
           () => {
             clearTimeout(timer);
             reject(new DOMException("Research polling canceled", "AbortError"));
+          },
+          { once: true }
+        );
+      }
+    });
+  }
+}
+
+/**
+ * Poll GET /api/v1/agent/research/{id} until settled (completed, failed, cancelled, paused, or waiting_approval).
+ */
+export async function pollAgentUntilSettled(researchId, { signal, onUpdate, intervalMs = 600 } = {}) {
+  while (true) {
+    if (signal?.aborted) {
+      throw new DOMException("Agent polling canceled", "AbortError");
+    }
+    const [session, traceResp] = await Promise.all([
+      api.getAgentSession(researchId, signal),
+      api.getAgentTrace(researchId, 300, signal).catch(() => null),
+    ]);
+    if (onUpdate) {
+      onUpdate(session, traceResp?.entries || null);
+    }
+    const status = String(session?.status || "").toLowerCase();
+    if (AGENT_SETTLED_STATUSES.has(status)) {
+      return { session, trace: traceResp?.entries || null };
+    }
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, intervalMs);
+      if (signal) {
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(new DOMException("Agent polling canceled", "AbortError"));
           },
           { once: true }
         );

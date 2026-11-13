@@ -1633,3 +1633,124 @@ dialog.app-sheet::backdrop {
   color: var(--text-tertiary);
   line-height: 1.45;
 }
+
+/* --- Stage 7 Agentic Research Controls, DAG & Trace -------------------- */
+.inspector-head .segmented__item {
+  padding: 0 6px;
+  font-size: var(--text-caption);
+}
+
+.number-control--narrow {
+  width: 58px;
+}
+
+.agent-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.agent-budget-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--text-callout);
+}
+
+.agent-approval-box {
+  padding: var(--space-3);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-box);
+  background: var(--surface-elevated);
+}
+
+.agent-approval-list,
+.agent-task-list,
+.agent-gaps-list,
+.agent-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.agent-approval-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-canvas);
+}
+
+.agent-approval-row__meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.agent-approval-row__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.agent-task-row,
+.agent-gap-row,
+.agent-trace-row {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-canvas);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-task-row.is-current {
+  border-color: var(--accent);
+}
+
+.agent-gap-row.is-resolved {
+  opacity: 0.78;
+}
+
+.agent-task-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.agent-task-row__question {
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.agent-task-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.agent-task-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.agent-verdict-row {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-elevated);
+  font-size: var(--text-body);
+  line-height: 1.45;
+}
