@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web-intelligence-engine"
+version = "0.2.0"
+description = "Local-first Web Intelligence Engine for Open-Source Adaptive Research Intelligence"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = {text = "MIT"}
+dependencies = [
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn>=0.32.0,<1.0.0",
+    "pydantic>=2.9.0,<3.0.0",
+    "pydantic-settings>=2.6.0,<3.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "trafilatura>=1.12.0,<3.0.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
+    "lxml>=5.2.0,<6.0.0",
+    "aiosqlite>=0.20.0,<1.0.0",
+    "python-dateutil>=2.9.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0,<9.0.0",
+    "pytest-asyncio>=0.24.0,<1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["web_intelligence"]
+
+[tool.pytest.ini_options]
+testpaths = ["web_intelligence/tests"]
+asyncio_mode = "auto"
+pythonpath = ["web_intelligence"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

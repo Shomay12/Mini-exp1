@@ -1,0 +1,36 @@
+# Virtual environments
+.venv/
+venv/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime data (SQLite databases, logs)
+data/
+*.db
+*.db-sqlite
+*.db-wal
+*.db-shm
+*.log
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / IDE / Agent config
+.DS_Store
+.qodo/
