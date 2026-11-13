@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     # Privacy & network boundaries
     allow_live_network: bool = True
     respect_robots_txt: bool = True
-    http_proxy: str | None = None
-    https_proxy: str | None = None
+    outbound_http_proxy: str | None = None
+    outbound_https_proxy: str | None = None
     enable_telemetry: bool = False
     disclose_outbound_queries: bool = True
 
@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     def _clean_secret(cls, value: Any) -> SecretStr | None:
         return _normalize_optional_secret(value)
 
-    @field_validator("http_proxy", "https_proxy", mode="before")
+    @field_validator("outbound_http_proxy", "outbound_https_proxy", mode="before")
     @classmethod
     def _clean_proxy(cls, value: Any) -> str | None:
         if isinstance(value, str) and not value.strip():
@@ -141,7 +141,7 @@ class Settings(BaseSettings):
             "privacy": {
                 "allow_live_network": self.allow_live_network,
                 "respect_robots_txt": self.respect_robots_txt,
-                "proxy_configured": bool(self.https_proxy or self.http_proxy),
+                "proxy_configured": bool(self.outbound_https_proxy or self.outbound_http_proxy),
                 "enable_telemetry": self.enable_telemetry,
                 "disclose_outbound_queries": self.disclose_outbound_queries,
                 "cloud_llm_required": False,

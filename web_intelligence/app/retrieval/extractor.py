@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,7 @@ from urllib.parse import urljoin, urlparse
 import trafilatura
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
+from htmldate import find_date
 
 from web_intelligence.app.core.security import canonicalize_url, validate_url_syntax
 from web_intelligence.app.schemas.documents import DocumentHeading
@@ -183,6 +185,8 @@ class ContentExtractor:
             time_tag = soup.find("time", attrs={"datetime": True})
             if time_tag and isinstance(time_tag.get("datetime"), str):
                 raw_html_date = time_tag["datetime"].strip()
+        if raw_html_date is None:
+            raw_html_date = _extract_jsonld_date(soup)
 
         # Extract canonical URL if valid HTTP(S) and same/safe origin
         canonical_url: str | None = None
@@ -224,7 +228,19 @@ class ContentExtractor:
         traf_sitename = _clean_text_field(traf_doc.sitename) if traf_doc else None
         traf_desc = _clean_text_field(traf_doc.description) if traf_doc else None
         traf_lang = _clean_text_field(traf_doc.language) if traf_doc else None
-        traf_date_raw = _clean_text_field(traf_doc.date) if traf_doc else None
+
+        # Only use strict metadata-level date extraction (never guess YYYY-01-01 from body prose)
+        strict_htmldate: str | None = None
+        if raw_html_date is None:
+            try:
+                strict_htmldate = find_date(
+                    decoded,
+                    extensive_search=False,
+                    original_date=True,
+                    outputformat="%Y-%m-%d",
+                )
+            except Exception:
+                strict_htmldate = None
 
         extractor_used = "trafilatura"
         final_text = traf_text
@@ -236,9 +252,9 @@ class ContentExtractor:
                 if not traf_text:
                     warnings.append("Trafilatura yielded empty text; fell back to BeautifulSoup.")
 
-        # Validate publication date strictly (prefer explicit HTML meta date, then Trafilatura date)
+        # Validate publication date strictly (prefer explicit HTML meta/JSON-LD, then strict htmldate)
         published_at: datetime | None = None
-        for candidate_date in (raw_html_date, traf_date_raw):
+        for candidate_date in (raw_html_date, strict_htmldate):
             if candidate_date:
                 parsed_dt, date_warn = validate_publication_date(candidate_date)
                 if date_warn:
@@ -260,6 +276,26 @@ class ContentExtractor:
             extractor_used=extractor_used if final_text else None,
             warnings=warnings,
         )
+
+
+def _extract_jsonld_date(soup: BeautifulSoup) -> str | None:
+    """Extract explicit datePublished/dateCreated from JSON-LD metadata if present."""
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.string or script.get_text()
+        if not raw or not raw.strip():
+            continue
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for obj in items:
+            if isinstance(obj, dict):
+                for key in ("datePublished", "dateCreated"):
+                    val = obj.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return val.strip()
+    return None
 
 
 def _clean_block_text(text: str) -> str:

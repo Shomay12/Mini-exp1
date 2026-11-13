@@ -121,3 +121,17 @@ def test_implausible_publication_dates_rejected() -> None:
     assert future_dt is None and future_warn is not None
     assert ancient_dt is None and ancient_warn is not None
     assert good_dt is not None and good_dt.year == 2026 and good_warn is None
+
+
+def test_prose_year_mention_does_not_invent_publication_date() -> None:
+    html = (
+        "<html><head><title>Undated Page</title></head>"
+        "<body><article><p>The model was released in January 2026 under Apache 2.0 "
+        "with full local retrieval support.</p></article></body></html>"
+    )
+    extracted = ContentExtractor().extract(
+        html.encode("utf-8"),
+        final_url="https://example.org/undated",
+        content_type="text/html",
+    )
+    assert extracted.published_at is None

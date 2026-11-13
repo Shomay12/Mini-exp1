@@ -31,7 +31,7 @@ class PrivacyPolicy:
             retention_days=settings.retention_days,
             telemetry_enabled=False,
             cloud_llm_required=False,
-            proxy_url=settings.https_proxy or settings.http_proxy,
+            proxy_url=settings.outbound_https_proxy or settings.outbound_http_proxy,
         )
 
     def assert_live_network_allowed(self, target_description: str) -> None:
